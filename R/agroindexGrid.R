@@ -29,6 +29,8 @@
 #' @param ssrd A climate4R dataset of daily surface solar radiation downwards (J/m^2)
 #' @param pvpot A climate4R dataset of daily vapor pressure potential (Pa)
 #' @param cal A calendar definition. Default to 365-day calendar (not used by FAO/CDI/CEI indices, kept for compatibility).
+#' @param time.resolution Output time resolution. Choices are "month", "year" (default) and "climatology".
+#' Note: FAO indices are calculated year by year by definition and will ignore this parameter.
 #' @param index.code Character string, indicating the specific code of the agroclimatic index. 
 #' Options include FAO tier1 indices (gsl, avg, nd_thre, nhw, dr, prcptot, nrd, lds, sdii, prcptot_thre, ns),
 #' FAO agronomic season indices (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn, dt_ed_rnagsn, dl_agsn, 
@@ -66,13 +68,15 @@
 #' data("pr.grid")
 #' 
 #' ## Example 1: Growing Season Length (GSL)
-#' gsl.grid <- agroindexGrid(tm = tasmax.grid, 
+#' gsl.grid <- agroindexGrid(t2m = tasmax.grid, 
 #'                           index.code = "gsl",
+#'                           time.resolution = "year",
 #'                           index.arg.list = list(lat = 40))
 #' 
 #' ## Example 2: Average temperature with custom season
-#' avg.grid <- agroindexGrid(tm = tasmax.grid,
+#' avg.grid <- agroindexGrid(t2m = tasmax.grid,
 #'                           index.code = "avg",
+#'                           time.resolution = "year",
 #'                           index.arg.list = list(
 #'                             year.start = "2000-06-01",
 #'                             year.end = "2000-08-31"))
@@ -80,6 +84,7 @@
 #' ## Example 3: Number of heat waves
 #' nhw.grid <- agroindexGrid(tx = tasmax.grid,
 #'                           index.code = "nhw",
+#'                           time.resolution = "year",
 #'                           index.arg.list = list(
 #'                             threshold = 35,
 #'                             duration = 3))
@@ -89,6 +94,7 @@
 #' cdi.grid <- agroindexGrid(tx = tasmax.grid,
 #'                           hurs = hurs.grid,
 #'                           index.code = "CDI",
+#'                           time.resolution = "year",
 #'                           index.arg.list = list(
 #'                             bounds = data.frame(
 #'                               var = c("tx", "hurs"),
@@ -115,6 +121,7 @@ agroindexGrid <- function(index.code,
                         input.arg.list = list(),
                         index.arg.list = list(),
                         cal = "365_day",
+                        time.resolution = "year",
                         parallel = FALSE,
                         max.ncores = 16,
                         ncores = NULL) {
@@ -145,6 +152,10 @@ agroindexGrid <- function(index.code,
     if (!is.null(pvpot)) {
         if (getTimeResolution(pvpot) != "DD") stop("Daily data is required as input", call. = FALSE)
     }
+    
+    # Validate time resolution
+    time.resolution <- match.arg(time.resolution, choices = c("month", "year", "climatology"))
+    
     index.code <- match.arg(index.code,
                             choices = c("gsl", "avg", "nd_thre", "nhw", "dr", 
                                         "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns",
@@ -169,6 +180,42 @@ agroindexGrid <- function(index.code,
         sapply(rem, function(x) assign(x, NULL)) %>% invisible()
         message("NOTE: some input grids provided for ", index.code,
                 " index calculation are not required and were removed")
+    }
+    
+    # Grid consistency checks for multi-variable inputs
+    grid.list <- list("tn" = tn, "tx" = tx, "pr" = pr, "t2m" = t2m, 
+                     "hurs" = hurs, "sfcwind" = sfcwind, "sp" = sp, 
+                     "ssrd" = ssrd, "pvpot" = pvpot)
+    grid.list <- grid.list[!sapply(grid.list, is.null)]
+    
+    if (length(grid.list) > 1) {
+        # Check grid consistency
+        locs <- lapply(grid.list, isRegular)
+        if (!any(sum(unlist(locs)) != 0, sum(unlist(locs)) != length(grid.list))) {
+            stop("Regular and Irregular grids can not be combined. See function interpGrid")
+        }
+        
+        # Intersect grids temporally
+        original_names <- names(grid.list)
+        grid.list <- intersectGrid(grid.list, type = "temporal", which.return = 1:length(grid.list))
+        namesgridlist <- original_names
+        
+        # Check spatial consistency and interpolate if needed
+        refgrid <- getGrid(grid.list[[1]])
+        indinterp <- which(isFALSE(unlist(lapply(2:length(grid.list), function(i) 
+            identical(refgrid, getGrid(grid.list[[i]]))))))
+        
+        if (length(indinterp) > 0) {
+            grid.list.aux <- suppressMessages(lapply(grid.list[indinterp], function(i) 
+                interpGrid(i, getGrid(grid.list[[1]]))))
+            grid.list[indinterp] <- grid.list.aux
+            grid.list.aux <- NULL
+        }
+        
+        # Update variables with processed grids
+        for (i in 1:length(grid.list)) {
+            assign(namesgridlist[i], grid.list[[i]])
+        }
     }
     # Ensure member is present in data structures / handle station <--> grid
     if (!is.null(tx)) {
@@ -224,6 +271,7 @@ agroindexGrid <- function(index.code,
     assign("refGrid", get(refGridName))
     # Number of members
     n.mem <- getShape(refGrid, "member")
+    if (is.na(n.mem)) n.mem <- 1  # Handle grids without member dimension
     # Get reference dates (as Date, FAO/CDI/CEI)
     refDates <- getRefDates(refGrid)
     message("[", Sys.time(), "] Calculating ", index.code, " ...")
@@ -236,50 +284,216 @@ agroindexGrid <- function(index.code,
         apply_fun <- lapply
     }
     out.list <- apply_fun(1:n.mem, function(x) {
+        tryCatch({
         # if (n.mem > 1) message("[", Sys.time(), "] Calculating ",
                                # index.code, " for member ", x, " ...")
         # Extract data as 3D arrays (time x lat x lon) following agroclimGrid pattern
         aux.tx <- aux.tn <- aux.pr <- aux.t2m <- aux.hurs <- NULL
         aux.sfcwind <- aux.sp <- aux.ssrd <- aux.pvpot <- NULL
         if (!is.null(tx)) {
-            tmp <- subsetGrid(tx, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(tx, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- tx %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.tx <- tmp[["Data"]]
         }
         if (!is.null(tn)) {
-            tmp <- subsetGrid(tn, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(tn, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- tn %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.tn <- tmp[["Data"]]
         }
         if (!is.null(pr)) {
-            tmp <- subsetGrid(pr, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(pr, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- pr %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.pr <- tmp[["Data"]]
         }
         if (!is.null(t2m)) {
-            tmp <- subsetGrid(t2m, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(t2m, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- t2m %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.t2m <- tmp[["Data"]]
         }
         if (!is.null(hurs)) {
-            tmp <- subsetGrid(hurs, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(hurs, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- hurs %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.hurs <- tmp[["Data"]]
         }
         if (!is.null(sfcwind)) {
-            tmp <- subsetGrid(sfcwind, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(sfcwind, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- sfcwind %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.sfcwind <- tmp[["Data"]]
         }
         if (!is.null(sp)) {
-            tmp <- subsetGrid(sp, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(sp, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- sp %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.sp <- tmp[["Data"]]
         }
         if (!is.null(ssrd)) {
-            tmp <- subsetGrid(ssrd, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(ssrd, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- ssrd %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.ssrd <- tmp[["Data"]]
         }
         if (!is.null(pvpot)) {
-            tmp <- subsetGrid(pvpot, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(pvpot, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- pvpot %>% redim(loc = FALSE, member = FALSE)
+            }
             aux.pvpot <- tmp[["Data"]]
         }
         # Get coordinates (following agroclimGrid pattern)
         lats <- if (station) getCoordinates(refGrid)$y else refGrid$xyCoords$y
         lons <- if (station) getCoordinates(refGrid)$x else refGrid$xyCoords$x
+        
+        # EXCEPTION for FAO INDICES (require lat, dates, and NO temporal subsetting)
+        if (metadata$indexfun %in% c("agroindexFAO") || index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
+            if (time.resolution != "year") {
+                message(index.code, " is calculated year by year by definition. argument time.resolution ignored.")
+            }
+            
+            # Preprocess with aggregateGrid for efficiency
+            # Use the first available grid for the FAO section
+            fao_ref_grid <- if (!is.null(tx)) tx else if (!is.null(tn)) tn else if (!is.null(pr)) pr else if (!is.null(t2m)) t2m else if (!is.null(hurs)) hurs else if (!is.null(sfcwind)) sfcwind else if (!is.null(sp)) sp else if (!is.null(ssrd)) ssrd else pvpot
+            out.aux <- suppressMessages(aggregateGrid(fao_ref_grid, aggr.y = list(FUN = "mean", na.rm = TRUE)))
+            
+            # Prepare input data arrays
+            input.arg.list <- list()
+            if (!is.null(aux.tx)) input.arg.list[["tx"]] <- aux.tx
+            if (!is.null(aux.tn)) input.arg.list[["tn"]] <- aux.tn
+            if (!is.null(aux.pr)) input.arg.list[["pr"]] <- aux.pr
+            if (!is.null(aux.t2m)) input.arg.list[["t2m"]] <- aux.t2m
+            
+            # Prepare dates matrix
+            datess <- cbind(
+                as.numeric(format(as.Date(refDates), "%Y")),
+                as.numeric(format(as.Date(refDates), "%m")),
+                as.numeric(format(as.Date(refDates), "%d"))
+            )
+            
+            # Prepare arguments
+            index.arg.list[["dates"]] <- datess
+            index.arg.list[["index.code"]] <- index.code
+            
+            # Process lat-lon loop more efficiently
+            latloop <- lapply(1:length(lats), function(l) {
+                lonloop <- lapply(1:length(lons), function(lo) {
+                    index.arg.list[["lat"]] <- lats[l]
+                    
+                    # Extract time series for this point and prepare arguments
+                    point_args <- list()
+                    point_args[["dates"]] <- datess
+                    point_args[["lat"]] <- lats[l]
+                    
+                    # Add data arguments based on index type
+                    if (index.code == "gsl") {
+                        point_args[["tm"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else (aux.tx[, l, lo] + aux.tn[, l, lo]) / 2
+                    } else if (index.code == "avg") {
+                        point_args[["tm"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else if (!is.null(aux.tx)) aux.tx[, l, lo] else NULL
+                    } else if (index.code == "nd_thre") {
+                        point_args[["any"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else if (!is.null(aux.tx)) aux.tx[, l, lo] else NULL
+                    } else if (index.code == "nhw") {
+                        point_args[["tx"]] <- aux.tx[, l, lo]
+                    } else if (index.code == "dr") {
+                        point_args[["tx"]] <- aux.tx[, l, lo]
+                        point_args[["tn"]] <- aux.tn[, l, lo]
+                    } else if (index.code %in% c("prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
+                        point_args[["pr"]] <- aux.pr[, l, lo]
+                    } else {
+                        # For agronomic indices, add all available data and index.code
+                        point_args[["index.code"]] <- index.code
+                        if (!is.null(aux.tx)) point_args[["tx"]] <- aux.tx[, l, lo]
+                        if (!is.null(aux.tn)) point_args[["tn"]] <- aux.tn[, l, lo]
+                        if (!is.null(aux.pr)) point_args[["pr"]] <- aux.pr[, l, lo]
+                    }
+                    
+                    # Add any additional arguments from index.arg.list (excluding dates, lat, and index.code for tier1 indices)
+                    exclude_args <- c("dates", "lat")
+                    if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
+                        exclude_args <- c(exclude_args, "index.code")
+                    }
+                    additional_args <- index.arg.list[!names(index.arg.list) %in% exclude_args]
+                    point_args <- c(point_args, additional_args)
+                    
+                    # Call the appropriate FAO function
+                    tryCatch({
+                        # For tier1 indices, call the function directly by name
+                        # For agronomic indices, call agroindexFAO wrapper
+                        if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
+                            result <- do.call(index.code, point_args)
+                        } else {
+                            result <- do.call(metadata$indexfun, point_args)
+                        }
+                        
+                        # GSL returns a list, extract the GSL component
+                        if (index.code == "gsl" && is.list(result)) {
+                            result$GSL
+                        } else {
+                            result
+                        }
+                    }, error = function(e) {
+                        if (l <= 3 && lo <= 3) {
+                            warning("Error at lat=", lats[l], ", lon=", lons[lo], ": ", e$message)
+                        }
+                        NA
+                    })
+                })
+                do.call("abind", list(lonloop, along = 0))
+            })
+            
+            # Reconstruct output array
+            out.aux[["Data"]] <- unname(aperm(do.call("abind", list(latloop, along = 0)), c(3, 1, 2)))
+            attr(out.aux[["Data"]], "dimensions") <- c("time", "lat", "lon")
+            
+            # Update dates to match the output time dimension (years for FAO indices)
+            n_output_times <- dim(out.aux[["Data"]])[1]  # First dimension is time
+            if (n_output_times != length(refDates)) {
+                # FAO indices return yearly values
+                years <- unique(format(as.Date(refDates), "%Y"))
+                if (n_output_times == length(years)) {
+                    # Create start (Jan 1) and end (Dec 31) for each year
+                    start_dates <- as.Date(paste0(years, "-01-01"))
+                    end_dates <- as.Date(paste0(years, "-12-31"))
+                    message("[", Sys.time(), "] Converting daily dates to yearly dates (", n_output_times, " years)")
+                } else {
+                    # For other cases, take evenly spaced dates
+                    indices <- round(seq(1, length(refDates), length.out = n_output_times))
+                    start_dates <- as.Date(refDates)[indices]
+                    end_dates <- start_dates
+                    message("[", Sys.time(), "] Adjusting dates to match output time steps (", n_output_times, ")")
+                }
+            } else {
+                # Daily data preserved
+                start_dates <- as.Date(refDates)
+                end_dates <- start_dates
+            }
+            
+            out.aux[["Dates"]][["start"]] <- start_dates
+            out.aux[["Dates"]][["end"]] <- end_dates
+            
+            tx <- tn <- pr <- t2m <- hurs <- sfcwind <- sp <- ssrd <- pvpot <- NULL
+            return(out.aux)
+        }
         
         # Set dates in index.arg.list if not already set
         if (is.null(index.arg.list[["dates"]])) {
@@ -314,47 +528,23 @@ agroindexGrid <- function(index.code,
                         cdi_cei_result %>% group_by(season_id) %>% 
                             summarize(value = max(if (index.code == "CDI") cum_days else cum_excess, na.rm = TRUE)) %>% 
                             pull(value)
-                            
-                    } else if (index.code %in% c("dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn", 
-                                                  "dt_ed_rnagsn", "dl_agsn", "dc_agsn", "rn_agsn", 
-                                                  "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", 
-                                                  "dc_txh_agsn", "dc_tnh_agsn")) {
-                        # FAO agronomic indices
-                        dates_mat <- cbind(
-                            as.numeric(format(as.Date(refDates), "%Y")),
-                            as.numeric(format(as.Date(refDates), "%m")),
-                            as.numeric(format(as.Date(refDates), "%d"))
-                        )
-                        args_list <- index.arg.list
-                        args_list[["lat"]] <- lats[l]
-                        args_list[["dates"]] <- dates_mat
-                        args_list[["index.code"]] <- index.code
-                        if (!is.null(aux.pr)) args_list[["pr"]] <- aux.pr[, l, lo]
-                        if (!is.null(aux.tx)) args_list[["tx"]] <- aux.tx[, l, lo]
-                        if (!is.null(aux.tn)) args_list[["tn"]] <- aux.tn[, l, lo]
-                        
-                        do.call("agroindexFAO", args_list)
-                        
                     } else {
-                        # FAO tier1 indices
+                        # Other indices (non-FAO, non-CDI/CEI)
                         dates_mat <- cbind(
                             as.numeric(format(as.Date(refDates), "%Y")),
                             as.numeric(format(as.Date(refDates), "%m")),
                             as.numeric(format(as.Date(refDates), "%d"))
                         )
-                        args_list <- index.arg.list
+                        args_list <- index.arg.list[!names(index.arg.list) %in% c("dates")]
                         args_list[["dates"]] <- dates_mat
                         
                         if (index.code == "gsl") {
                             args_list[["tm"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else (aux.tx[, l, lo] + aux.tn[, l, lo]) / 2
                             args_list[["lat"]] <- lats[l]
-                        } else if (index.code %in% c("avg", "nd_thre")) {
-                            tm_val <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else if (!is.null(aux.tx)) aux.tx[, l, lo] else NULL
-                            if (index.code == "nd_thre") {
-                                args_list[["any"]] <- tm_val
-                            } else {
-                                args_list[["tm"]] <- tm_val
-                            }
+                        } else if (index.code == "avg") {
+                            args_list[["tm"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else if (!is.null(aux.tx)) aux.tx[, l, lo] else NULL
+                        } else if (index.code == "nd_thre") {
+                            args_list[["any"]] <- if (!is.null(aux.t2m)) aux.t2m[, l, lo] else if (!is.null(aux.tx)) aux.tx[, l, lo] else NULL
                         } else if (index.code == "nhw") {
                             args_list[["tx"]] <- aux.tx[, l, lo]
                         } else if (index.code == "dr") {
@@ -365,7 +555,12 @@ agroindexGrid <- function(index.code,
                         }
                         
                         # Call the index function
-                        index_result <- do.call(metadata$indexfun, args_list)
+                        # For tier1 indices, call the function directly by name
+                        if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
+                            index_result <- do.call(index.code, args_list)
+                        } else {
+                            index_result <- do.call(metadata$indexfun, args_list)
+                        }
                         
                         # GSL returns a list, extract the GSL component
                         if (index.code == "gsl" && is.list(index_result)) {
@@ -389,12 +584,6 @@ agroindexGrid <- function(index.code,
         
         # Reconstruct data array with proper dimensions
         latloop_bound <- do.call("abind", list(latloop, along = 0))
-        
-        # DEBUG: Check dimensions before aperm
-        if (x == 1) {  # Only print for first member
-            message("DEBUG: latloop_bound dimensions: ", paste(dim(latloop_bound), collapse=" x "))
-            message("DEBUG: Number of dimensions: ", length(dim(latloop_bound)))
-        }
         
         out_array <- unname(aperm(latloop_bound, c(3, 1, 2)))
         
@@ -424,23 +613,59 @@ agroindexGrid <- function(index.code,
         
         # Transform to climate4R grid structure
         refGrid <- if (!is.null(tx)) {
-            tmp <- subsetGrid(tx, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(tx, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- tx %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(tn)) {
-            tmp <- subsetGrid(tn, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(tn, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- tn %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(pr)) {
-            tmp <- subsetGrid(pr, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(pr, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- pr %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(t2m)) {
-            tmp <- subsetGrid(t2m, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(t2m, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- t2m %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(hurs)) {
-            tmp <- subsetGrid(hurs, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(hurs, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- hurs %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(sfcwind)) {
-            tmp <- subsetGrid(sfcwind, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(sfcwind, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- sfcwind %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(sp)) {
-            tmp <- subsetGrid(sp, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(sp, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- sp %>% redim(loc = FALSE, member = FALSE)
+            }
         } else if (!is.null(ssrd)) {
-            tmp <- subsetGrid(ssrd, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(ssrd, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- ssrd %>% redim(loc = FALSE, member = FALSE)
+            }
         } else {
-            tmp <- subsetGrid(pvpot, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            if (n.mem > 1) {
+                tmp <- subsetGrid(pvpot, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            } else {
+                tmp <- pvpot %>% redim(loc = FALSE, member = FALSE)
+            }
         }
         
         # Update refGrid with calculated data and dates
@@ -449,8 +674,16 @@ agroindexGrid <- function(index.code,
         refGrid[["Dates"]][["start"]] <- start_dates
         refGrid[["Dates"]][["end"]] <- end_dates
         
+        # Memory cleanup
         tx <- tn <- pr <- t2m <- hurs <- sfcwind <- sp <- ssrd <- pvpot <- NULL
+        gc()  # Force garbage collection
         return(refGrid)
+        }, error = function(e) {
+            warning("Error processing member ", x, ": ", e$message)
+            # Return a grid with NA values but same structure
+            refGrid[["Data"]][] <- NA
+            return(refGrid)
+        })
     })
     message("[", Sys.time(), "] Done")
     out <- if (length(out.list) == 1) {
