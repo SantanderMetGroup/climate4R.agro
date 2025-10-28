@@ -9,17 +9,27 @@ agroindexGrid(
   tn = NULL,
   tx = NULL,
   pr = NULL,
+  t2m = NULL,
+  hurs = NULL,
+  sfcwind = NULL,
+  sp = NULL,
+  ssrd = NULL,
+  pvpot = NULL,
   input.arg.list = list(),
   index.arg.list = list(),
   cal = "365_day",
+  time.resolution = "year",
   parallel = FALSE,
   max.ncores = 16,
   ncores = NULL
 )
 }
 \arguments{
-\item{index.code}{Character string, indicating the specific code of the index according to the ETCCDI
-definitions (see Details).}
+\item{index.code}{Character string, indicating the specific code of the agroclimatic index.
+Options include FAO tier1 indices (gsl, avg, nd_thre, nhw, dr, prcptot, nrd, lds, sdii, prcptot_thre, ns),
+FAO agronomic season indices (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn, dt_ed_rnagsn, dl_agsn,
+dc_agsn, rn_agsn, avrn_agsn, dc_rnlg_agsn, tm_agsn, dc_txh_agsn, dc_tnh_agsn),
+and stress indices (CDI, CEI). See Details.}
 
 \item{tn}{A climate4R dataset of daily minimum temperature (degrees C)}
 
@@ -27,14 +37,27 @@ definitions (see Details).}
 
 \item{pr}{A climate4R dataset of daily precipitation (mm)}
 
-\item{input.arg.list}{Optional. A list of arguments internally passed to \code{\link[climdex.pcic]{climdexInput.raw}}
-from package \pkg{climdex.pcic}}
+\item{t2m}{A climate4R dataset of daily air temperature at 2 m (degrees C)}
+
+\item{hurs}{A climate4R dataset of daily relative humidity (\\%)}
+
+\item{sfcwind}{A climate4R dataset of daily surface wind speed (m/s)}
+
+\item{sp}{A climate4R dataset of daily surface pressure (Pa)}
+
+\item{ssrd}{A climate4R dataset of daily surface solar radiation downwards (J/m^2)}
+
+\item{pvpot}{A climate4R dataset of daily vapor pressure potential (Pa)}
+
+\item{input.arg.list}{Optional. A list of arguments internally passed to the index calculation functions.}
 
 \item{index.arg.list}{Optional (but depending on the specific index might be necessary). A list of specific arguments
-for the target index. See Details.}
+for the target index. See Details and the help files for individual index functions.}
 
-\item{cal}{A calendar definition. Default to 365-day calendar. This argument is passed to \code{\link[PCICt]{as.PCICt}},
-whose help documentation contains further details.}
+\item{cal}{A calendar definition. Default to 365-day calendar (not used by FAO/CDI/CEI indices, kept for compatibility).}
+
+\item{time.resolution}{Output time resolution. Choices are "month", "year" (default) and "climatology".
+Note: FAO indices are calculated year by year by definition and will ignore this parameter.}
 
 \item{parallel}{Logical. Should parallel execution be used?}
 
@@ -44,67 +67,89 @@ whose help documentation contains further details.}
 cores is used when \code{ncpus = NULL} (the default), or when \code{maxcores} exceeds the default \code{ncores} value.}
 }
 \description{
-Calculation of the agroclimatic indices.
-The function is a wrapper of the package \pkg{?} for its seamless integration with climate4R objects.
+Calculation of agroclimatic indices including FAO tier1 indices and CDI/CEI stress indices.
+The function processes climate4R grid objects for seamless integration.
 }
 \details{
-\code{\link{climdexShow}} will display on screen a full list of ETCCDI Core indices and their codes. The names of the
-internal functions calculating each index is also displayed, whose help files can aid in the definition of index-specific arguments.
+\code{\link{agroindexShow}} will display on screen a full list of available agroclimatic indices and their codes.
 
-\strong{Baseline period}
-By default, the function will use as baseline period the full period of years encompassed by the input grid(s). This
-is used, for instance, for calculating the relevant percentiles in some indices etc. To use a specific baseline period
-use the \code{"base.range"} argument in the \code{input.arg.list} internally passed to
- \code{\link[climdex.pcic]{climdexInput.raw}}.
+\strong{Index Groups}
+\itemize{
+\item \strong{FAO Tier1 indices}: Basic agroclimatic indices (gsl, avg, nd_thre, nhw, dr, prcptot, nrd, lds, sdii, prcptot_thre, ns)
+\item \strong{FAO Agronomic Season indices}: Indices based on water balance and agronomic season definition
+\item \strong{Stress indices}: CDI (Condition Duration Index) and CEI (Condition Excess Index) for multi-variable stress analysis
+}
+
+For index-specific arguments, refer to the help files of individual index functions.
 }
 \section{Parallel Processing}{
 
 
-Parallel processing is enabled using the \pkg{parallel} package. 
+Parallel processing is enabled using the \pkg{parallel} package.
 Parallelization is undertaken by a FORK-type parallel socket cluster formed by \code{ncores}.
 If \code{ncores} is not specified (default), \code{ncores} will be one less than the autodetected number of cores.
-The maximum number of cores used for parallel processing can be set with the \code{max.ncores} argument, 
-although this will be reset to the auto-detected number of cores minus 1 if this number is exceeded. Note that not all 
+The maximum number of cores used for parallel processing can be set with the \code{max.ncores} argument,
+although this will be reset to the auto-detected number of cores minus 1 if this number is exceeded. Note that not all
 code, but just some critical loops within the function are parallelized.
 
 In practice, parallelization does not always result in smaller execution times, due to the parallel overhead.
-However, parallel computing may potentially provide a significant speedup for the 
+However, parallel computing may potentially provide a significant speedup for the
 particular case of large multimember datasets or large grids.
- 
+
 Parallel computing is currently not available for Windows machines.
 }
 
 \examples{
 \dontrun{
-require(climate4R.climdex)
+require(transformeR)
 require(visualizeR)
-data("tasmin.eobs")
-## FROST DAYS (Annual count of days when TN < 0 degC)
-fd.grid <- climdexGrid(tn = tasmin.eobs, index.code = "FD")
-spatialPlot(climatology(fd.grid), at = seq(0,165,10),
-            main = "Mean annual number of frost days (1991-2010)")
+# Load temperature and precipitation data
+data("tasmax.grid")
+data("tasmin.grid")
+data("pr.grid")
 
+## Example 1: Growing Season Length (GSL)
+gsl.grid <- agroindexGrid(t2m = tasmax.grid, 
+                          index.code = "gsl",
+                          time.resolution = "year",
+                          index.arg.list = list(lat = 40))
 
-# The following example will compute the CWD index
-# (maximum number of consecutive days with RR ≥ 1mm)
-# for the homogeneized VALUE dataset of stations over Europe
-# (See Gutiérrez et al. 2018 DOI:10.1002/joc.5462 for details on this dataset)
-library(loadeR)
-library(transformeR)
-library(visualizeR)
-destfile = "/tmp/VALUE_ECA_86_v2.tar.gz"
-# (~8Mb download, change destfile at your convenience)
-download.file("http://meteo.unican.es/work/loadeR/data/VALUE_ECA_86_v2.tar.gz", destfile = destfile)
-untar(destfile, exdir = "/tmp")
-station.data <- loadStationData(dataset = "/tmp/VALUE_ECA_86_v2",
-                                var = "precip",
-                                years = 1981:2000)
-cwd <- climdexGrid(index.code = "CWD", pr = station.data)
-spatialPlot(climatology(cwd), backdrop.theme = "countries",
-            main = "Mean number of consecutive annual wet days (1981-2000)")
+## Example 2: Average temperature with custom season
+avg.grid <- agroindexGrid(t2m = tasmax.grid,
+                          index.code = "avg",
+                          time.resolution = "year",
+                          index.arg.list = list(
+                            year.start = "2000-06-01",
+                            year.end = "2000-08-31"))
+
+## Example 3: Number of heat waves
+nhw.grid <- agroindexGrid(tx = tasmax.grid,
+                          index.code = "nhw",
+                          time.resolution = "year",
+                          index.arg.list = list(
+                            threshold = 35,
+                            duration = 3))
+
+## Example 4: CDI - Condition Duration Index (multi-variable stress)
+# Requires bounds specification for each variable
+cdi.grid <- agroindexGrid(tx = tasmax.grid,
+                          hurs = hurs.grid,
+                          index.code = "CDI",
+                          time.resolution = "year",
+                          index.arg.list = list(
+                            bounds = data.frame(
+                              var = c("tx", "hurs"),
+                              lower = c(30, 0),
+                              upper = c(Inf, 40)),
+                            combiner = "all",
+                            min_duration = 3))
 }
 
 }
 \author{
-J. Bedia
+J. Bedia is the original author of climdexGrid.R
+
+Sara Herrera is the author of CDI and CEI indices
+
+Pablo Lavin is the author of the modifications in main function agroindexGrid
 }

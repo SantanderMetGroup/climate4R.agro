@@ -2,7 +2,7 @@
 % Please edit documentation in R/agroindexGrid.R
 \name{agroindexShow}
 \alias{agroindexShow}
-\title{List all the 27 ETCCDI Core Indices}
+\title{List all available Agroclimatic Indices}
 \usage{
 agroindexShow()
 }
@@ -10,20 +10,19 @@ agroindexShow()
 Print a table on the screen with the following columns:
 \itemize{
 \item \strong{code}: Code of the index. This is the character string used as input value
-for the argument \code{index.code} in \code{\link{climdexGrid}}
+for the argument \code{index.code} in \code{\link{agroindexGrid}}
 \item \strong{longname}: Long description of the index
-\item \strong{index.fun}: The name of the internal function from package \pkg{\link{climdex.pcic}} used to calculate it
-\item \strong{tn,tx,pr}: A logical value (0/1) indicating the input variables required for index calculation
+\item \strong{index.fun}: The name of the internal function used to calculate it
+\item \strong{tn,tx,tm,pr,t2m,hurs,sfcwind,sp,ssrd,pvpot}: Logical values (0/1) indicating the input variables required for index calculation
 \item \strong{units}: The units of the index (when different from those of the input variable)
 }
 }
 \description{
-Print a table with a summary of the 27 ETCCDI Core indices
+Print a table with a summary of the available agroclimatic indices including FAO tier1 indices and stress indices
 }
 \references{
-The ETCCDI web page giving the definition of the 27 core indices:
-\url{http://etccdi.pacificclimate.org/list_27_indices.shtml}
+FAO agroclimatic indices documentation
 }
 \author{
-J. Bedia
+J. Bedia (original)
 }
