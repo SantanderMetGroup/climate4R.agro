@@ -145,6 +145,150 @@ cat("Latitude range:", min(test_data$lats), "to", max(test_data$lats), "\n")
 cat("Longitude range:", min(test_data$lons), "to", max(test_data$lons), "\n\n")
 
 # =============================================================================
+# 1.5. CREATE ENSEMBLE DATA WITH MEMBER DIMENSION
+# =============================================================================
+
+cat("=== Creating ensemble data with member dimension ===\n")
+
+# Function to create ensemble data with multiple members
+create_ensemble_data <- function(n_days = 730, n_lat = 3, n_lon = 3, n_members = 5, start_year = 2020) {
+  # Create dates
+  dates <- seq(as.Date(paste0(start_year, "-01-01")), 
+               by = "day", length.out = n_days)
+  
+  # Create coordinates
+  lats <- seq(40, 42, length.out = n_lat)
+  lons <- seq(-3, -1, length.out = n_lon)
+  
+  # Create synthetic ensemble data
+  set.seed(456)  # Different seed for ensemble data
+  
+  # Temperature data (seasonal pattern with member variation)
+  base_temp <- 15 + 10 * sin(2 * pi * (1:n_days) / 365)
+  tx_ensemble <- array(NA, dim = c(n_days, n_lat, n_lon, n_members))
+  tn_ensemble <- array(NA, dim = c(n_days, n_lat, n_lon, n_members))
+  t2m_ensemble <- array(NA, dim = c(n_days, n_lat, n_lon, n_members))
+  
+  for (m in 1:n_members) {
+    # Add member-specific variation
+    member_offset <- rnorm(1, 0, 1)  # Random offset per member
+    member_noise <- rnorm(n_days, 0, 0.5)  # Member-specific noise
+    
+    for (i in 1:n_lat) {
+      for (j in 1:n_lon) {
+        # Add spatial variation
+        spatial_var <- (i-1) * 0.5 + (j-1) * 0.3
+        tx_ensemble[, i, j, m] <- base_temp + spatial_var + member_offset + member_noise + rnorm(n_days, 0, 2)
+        tn_ensemble[, i, j, m] <- base_temp + spatial_var - 5 + member_offset + member_noise + rnorm(n_days, 0, 1.5)
+        t2m_ensemble[, i, j, m] <- (tx_ensemble[, i, j, m] + tn_ensemble[, i, j, m]) / 2
+      }
+    }
+  }
+  
+  # Precipitation data (more variable, some dry periods)
+  pr_ensemble <- array(NA, dim = c(n_days, n_lat, n_lon, n_members))
+  for (m in 1:n_members) {
+    member_pr_offset <- rnorm(1, 0, 0.5)  # Member-specific precipitation offset
+    
+    for (i in 1:n_lat) {
+      for (j in 1:n_lon) {
+        # Seasonal precipitation pattern
+        seasonal_pr <- 2 + 3 * sin(2 * pi * (1:n_days) / 365 + pi/2)
+        pr_ensemble[, i, j, m] <- pmax(0, seasonal_pr + member_pr_offset + rnorm(n_days, 0, 2))
+        # Add some dry periods
+        dry_periods <- sample(1:n_days, size = n_days * 0.3)
+        pr_ensemble[dry_periods, i, j, m] <- 0
+      }
+    }
+  }
+  
+  # Relative humidity (inverse relationship with temperature)
+  hurs_ensemble <- array(NA, dim = c(n_days, n_lat, n_lon, n_members))
+  for (m in 1:n_members) {
+    for (i in 1:n_lat) {
+      for (j in 1:n_lon) {
+        hurs_ensemble[, i, j, m] <- pmax(20, pmin(100, 80 - (t2m_ensemble[, i, j, m] - 15) * 2 + rnorm(n_days, 0, 5)))
+      }
+    }
+  }
+  
+  # Create climate4R grid objects with member dimension
+  tx_ensemble_grid <- makeEnsembleGrid(tx_ensemble, lats, lons, dates, "tx", n_members)
+  tn_ensemble_grid <- makeEnsembleGrid(tn_ensemble, lats, lons, dates, "tn", n_members)
+  pr_ensemble_grid <- makeEnsembleGrid(pr_ensemble, lats, lons, dates, "pr", n_members)
+  t2m_ensemble_grid <- makeEnsembleGrid(t2m_ensemble, lats, lons, dates, "t2m", n_members)
+  hurs_ensemble_grid <- makeEnsembleGrid(hurs_ensemble, lats, lons, dates, "hurs", n_members)
+  
+  return(list(
+    tx = tx_ensemble_grid,
+    tn = tn_ensemble_grid,
+    pr = pr_ensemble_grid,
+    t2m = t2m_ensemble_grid,
+    hurs = hurs_ensemble_grid,
+    dates = dates,
+    lats = lats,
+    lons = lons,
+    n_members = n_members
+  ))
+}
+
+# Helper function to create proper climate4R ensemble grid objects
+makeEnsembleGrid <- function(data, lats, lons, dates, varName = "test", n_members) {
+  # Create proper climate4R grid structure with member dimension
+  grid <- list()
+  
+  # Data array with proper dimensions: time x lat x lon x member
+  grid$Data <- data
+  attr(grid$Data, "dimensions") <- c("time", "lat", "lon", "member")
+  
+  # Spatial coordinates
+  grid$xyCoords <- list(x = lons, y = lats)
+  attr(grid$xyCoords, "resX") <- abs(lons[2] - lons[1])
+  attr(grid$xyCoords, "projection") <- "LatLonProjection"
+  attr(grid$xyCoords, "interpolation") <- "bilinear"
+  attr(grid$xyCoords, "subset") <- "subsetSpatial"
+  
+  # Temporal coordinates
+  grid$Dates <- list(start = dates, end = dates)
+  
+  # Variable metadata
+  grid$Variable <- list(varName = varName, level = NULL)
+  attr(grid$Variable, "use_dictionary") <- FALSE
+  attr(grid$Variable, "description") <- paste("Daily", varName, "ensemble")
+  attr(grid$Variable, "units") <- ifelse(varName %in% c("tx", "tn", "t2m"), "degC", 
+                                        ifelse(varName == "pr", "mm", 
+                                              ifelse(varName == "hurs", "%", "units")))
+  attr(grid$Variable, "longname") <- paste("Daily", varName, "ensemble")
+  attr(grid$Variable, "daily_agg_cellfun") <- "none"
+  attr(grid$Variable, "monthly_agg_cellfun") <- "none"
+  attr(grid$Variable, "verification_time") <- "none"
+  
+  # Member information
+  grid$Members <- paste0("member_", 1:n_members)
+  grid$InitializationDates <- NULL
+  
+  # Dataset attributes
+  attr(grid, "dataset") <- "synthetic_ensemble_test_data"
+  attr(grid, "R_package_desc") <- "climate4R.agro-test"
+  attr(grid, "R_package_URL") <- "https://github.com/SantanderMetGroup/climate4R.agro"
+  attr(grid, "R_package_ref") <- "ensemble_test_data"
+  
+  # Set class
+  class(grid) <- c("grid", "regular")
+  
+  return(grid)
+}
+
+# Create ensemble test data
+ensemble_data <- create_ensemble_data(n_days = 730, n_lat = 3, n_lon = 3, n_members = 5)
+
+cat("Ensemble test data created: 730 days, 3x3 grid, 5 members\n")
+cat("Date range:", as.character(min(ensemble_data$dates)), "to", as.character(max(ensemble_data$dates)), "\n")
+cat("Latitude range:", min(ensemble_data$lats), "to", max(ensemble_data$lats), "\n")
+cat("Longitude range:", min(ensemble_data$lons), "to", max(ensemble_data$lons), "\n")
+cat("Number of members:", ensemble_data$n_members, "\n\n")
+
+# =============================================================================
 # 2. TEST FAO TIER1 INDICES
 # =============================================================================
 
@@ -490,7 +634,566 @@ test_cdi_cei_indices <- function() {
 cdi_cei_results <- test_cdi_cei_indices()
 
 # =============================================================================
-# 5. TEST ERROR HANDLING AND EDGE CASES
+# 5. TEST MEMBER DIMENSION HANDLING
+# =============================================================================
+
+cat("\n=== Testing Member Dimension Handling ===\n")
+
+test_member_dimension <- function() {
+  results <- list()
+  
+  # Test 1: Single member vs ensemble comparison
+  cat("Testing single member vs ensemble comparison...\n")
+  tryCatch({
+    # Calculate index for single member
+    single_member_result <- agroindexGrid(
+      index.code = "avg",
+      t2m = test_data$t2m,  # Single member data
+      time.resolution = "year"
+    )
+    
+    # Calculate index for ensemble (should handle multiple members)
+    ensemble_result <- agroindexGrid(
+      index.code = "avg",
+      t2m = ensemble_data$t2m,  # Ensemble data
+      time.resolution = "year"
+    )
+    
+    # Check that ensemble result has member dimension
+    ensemble_dims <- dim(ensemble_result$Data)
+    single_dims <- dim(single_member_result$Data)
+    
+    if (length(ensemble_dims) == 4 && length(single_dims) == 3) {
+      results$member_comparison <- list(success = TRUE, 
+                                       single_dims = single_dims,
+                                       ensemble_dims = ensemble_dims)
+      cat("  ✓ Member dimension comparison test passed\n")
+      cat("    Single member dims:", paste(single_dims, collapse = " x "), "\n")
+      cat("    Ensemble dims:", paste(ensemble_dims, collapse = " x "), "\n")
+    } else {
+      results$member_comparison <- list(success = FALSE, 
+                                       error = "Dimension mismatch")
+      cat("  ✗ Member dimension comparison test failed\n")
+    }
+  }, error = function(e) {
+    results$member_comparison <- list(success = FALSE, error = e$message)
+    cat("  ✗ Member dimension comparison test failed:", e$message, "\n")
+  })
+  
+  # Test 2: FAO Tier1 indices with ensemble data
+  cat("Testing FAO Tier1 indices with ensemble data...\n")
+  fao_ensemble_indices <- c("gsl", "avg", "nhw", "dr", "prcptot", "nrd")
+  
+  for (idx in fao_ensemble_indices) {
+    cat("  Testing", idx, "with ensemble data...\n")
+    tryCatch({
+      if (idx == "gsl") {
+        result <- agroindexGrid(
+          index.code = idx,
+          t2m = ensemble_data$t2m,
+          index.arg.list = list(lat = 40),
+          time.resolution = "year"
+        )
+      } else if (idx == "nhw") {
+        result <- agroindexGrid(
+          index.code = idx,
+          tx = ensemble_data$tx,
+          index.arg.list = list(threshold = 30, duration = 3),
+          time.resolution = "year"
+        )
+      } else if (idx == "dr") {
+        result <- agroindexGrid(
+          index.code = idx,
+          tx = ensemble_data$tx,
+          tn = ensemble_data$tn,
+          time.resolution = "year"
+        )
+      } else if (idx %in% c("prcptot", "nrd")) {
+        result <- agroindexGrid(
+          index.code = idx,
+          pr = ensemble_data$pr,
+          time.resolution = "year"
+        )
+      } else {
+        result <- agroindexGrid(
+          index.code = idx,
+          t2m = ensemble_data$t2m,
+          time.resolution = "year"
+        )
+      }
+      
+      # Check that result has member dimension
+      result_dims <- dim(result$Data)
+      if (length(result_dims) == 4) {
+        results[[paste0("fao_ensemble_", idx)]] <- list(success = TRUE, dims = result_dims)
+        cat("    ✓", idx, "ensemble test passed\n")
+      } else {
+        results[[paste0("fao_ensemble_", idx)]] <- list(success = FALSE, 
+                                                      error = paste("Expected 4D array, got", length(result_dims), "D"))
+        cat("    ✗", idx, "ensemble test failed\n")
+      }
+    }, error = function(e) {
+      results[[paste0("fao_ensemble_", idx)]] <- list(success = FALSE, error = e$message)
+      cat("    ✗", idx, "ensemble test failed:", e$message, "\n")
+    })
+  }
+  
+  # Test 3: FAO Agronomic indices with ensemble data
+  cat("Testing FAO Agronomic indices with ensemble data...\n")
+  agronomic_ensemble_indices <- c("dt_st_rnagsn", "dl_agsn", "rn_agsn", "tm_agsn")
+  
+  for (idx in agronomic_ensemble_indices) {
+    cat("  Testing", idx, "with ensemble data...\n")
+    tryCatch({
+      result <- agroindexGrid(
+        index.code = idx,
+        tn = ensemble_data$tn,
+        tx = ensemble_data$tx,
+        pr = ensemble_data$pr,
+        index.arg.list = list(lat = 40),
+        time.resolution = "year"
+      )
+      
+      # Check that result has member dimension
+      result_dims <- dim(result$Data)
+      if (length(result_dims) == 4) {
+        results[[paste0("agronomic_ensemble_", idx)]] <- list(success = TRUE, dims = result_dims)
+        cat("    ✓", idx, "ensemble test passed\n")
+      } else {
+        results[[paste0("agronomic_ensemble_", idx)]] <- list(success = FALSE, 
+                                                             error = paste("Expected 4D array, got", length(result_dims), "D"))
+        cat("    ✗", idx, "ensemble test failed\n")
+      }
+    }, error = function(e) {
+      results[[paste0("agronomic_ensemble_", idx)]] <- list(success = FALSE, error = e$message)
+      cat("    ✗", idx, "ensemble test failed:", e$message, "\n")
+    })
+  }
+  
+  # Test 4: CDI/CEI with ensemble data
+  cat("Testing CDI/CEI with ensemble data...\n")
+  tryCatch({
+    cdi_ensemble_result <- agroindexGrid(
+      index.code = "CDI",
+      tx = ensemble_data$tx,
+      t2m = ensemble_data$t2m,
+      hurs = ensemble_data$hurs,
+      index.arg.list = list(
+        bounds = data.frame(
+          var = c("tx", "hurs"),
+          lower = c(30, 0),
+          upper = c(Inf, 40)
+        ),
+        combiner = "all",
+        min_duration = 3
+      ),
+      time.resolution = "year"
+    )
+    
+    # Check that result has member dimension
+    result_dims <- dim(cdi_ensemble_result$Data)
+    if (length(result_dims) == 4) {
+      results$cdi_ensemble <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ CDI ensemble test passed\n")
+    } else {
+      results$cdi_ensemble <- list(success = FALSE, 
+                                   error = paste("Expected 4D array, got", length(result_dims), "D"))
+      cat("  ✗ CDI ensemble test failed\n")
+    }
+  }, error = function(e) {
+    results$cdi_ensemble <- list(success = FALSE, error = e$message)
+    cat("  ✗ CDI ensemble test failed:", e$message, "\n")
+  })
+  
+  # Test 5: Parallel processing with ensemble data
+  cat("Testing parallel processing with ensemble data...\n")
+  tryCatch({
+    parallel_ensemble_result <- agroindexGrid(
+      index.code = "avg",
+      t2m = ensemble_data$t2m,
+      time.resolution = "year",
+      parallel = TRUE,
+      max.ncores = 2
+    )
+    
+    # Check that result has member dimension
+    result_dims <- dim(parallel_ensemble_result$Data)
+    if (length(result_dims) == 4) {
+      results$parallel_ensemble <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Parallel ensemble test passed\n")
+    } else {
+      results$parallel_ensemble <- list(success = FALSE, 
+                                       error = paste("Expected 4D array, got", length(result_dims), "D"))
+      cat("  ✗ Parallel ensemble test failed\n")
+    }
+  }, error = function(e) {
+    results$parallel_ensemble <- list(success = FALSE, error = e$message)
+    cat("  ✗ Parallel ensemble test failed:", e$message, "\n")
+  })
+  
+  # Test 6: Mixed single member and ensemble data
+  cat("Testing mixed single member and ensemble data...\n")
+  tryCatch({
+    mixed_result <- agroindexGrid(
+      index.code = "dr",
+      tx = test_data$tx,        # Single member
+      tn = ensemble_data$tn,    # Ensemble data
+      time.resolution = "year"
+    )
+    
+    # Check that result has member dimension (should match ensemble)
+    result_dims <- dim(mixed_result$Data)
+    if (length(result_dims) == 4) {
+      results$mixed_members <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Mixed members test passed\n")
+    } else {
+      results$mixed_members <- list(success = FALSE, 
+                                   error = paste("Expected 4D array, got", length(result_dims), "D"))
+      cat("  ✗ Mixed members test failed\n")
+    }
+  }, error = function(e) {
+    results$mixed_members <- list(success = FALSE, error = e$message)
+    cat("  ✗ Mixed members test failed:", e$message, "\n")
+  })
+  
+  # Test 7: Different number of members
+  cat("Testing different number of members...\n")
+  tryCatch({
+    # Create ensemble with different number of members
+    ensemble_data_3 <- create_ensemble_data(n_days = 730, n_lat = 3, n_lon = 3, n_members = 3)
+    ensemble_data_7 <- create_ensemble_data(n_days = 730, n_lat = 3, n_lon = 3, n_members = 7)
+    
+    result_3 <- agroindexGrid(
+      index.code = "avg",
+      t2m = ensemble_data_3$t2m,
+      time.resolution = "year"
+    )
+    
+    result_7 <- agroindexGrid(
+      index.code = "avg",
+      t2m = ensemble_data_7$t2m,
+      time.resolution = "year"
+    )
+    
+    # Check dimensions
+    dims_3 <- dim(result_3$Data)
+    dims_7 <- dim(result_7$Data)
+    
+    if (length(dims_3) == 4 && length(dims_7) == 4 && 
+        dims_3[4] == 3 && dims_7[4] == 7) {
+      results$different_members <- list(success = TRUE, 
+                                      dims_3 = dims_3, 
+                                      dims_7 = dims_7)
+      cat("  ✓ Different members test passed\n")
+      cat("    3 members dims:", paste(dims_3, collapse = " x "), "\n")
+      cat("    7 members dims:", paste(dims_7, collapse = " x "), "\n")
+    } else {
+      results$different_members <- list(success = FALSE, 
+                                       error = "Member count mismatch")
+      cat("  ✗ Different members test failed\n")
+    }
+  }, error = function(e) {
+    results$different_members <- list(success = FALSE, error = e$message)
+    cat("  ✗ Different members test failed:", e$message, "\n")
+  })
+  
+  # Test 8: Member dimension consistency across different indices
+  cat("Testing member dimension consistency across indices...\n")
+  tryCatch({
+    # Test multiple indices with same ensemble data
+    indices_to_test <- c("avg", "gsl", "nhw", "prcptot")
+    member_dims <- list()
+    
+    for (idx in indices_to_test) {
+      if (idx == "gsl") {
+        result <- agroindexGrid(
+          index.code = idx,
+          t2m = ensemble_data$t2m,
+          index.arg.list = list(lat = 40),
+          time.resolution = "year"
+        )
+      } else if (idx == "nhw") {
+        result <- agroindexGrid(
+          index.code = idx,
+          tx = ensemble_data$tx,
+          index.arg.list = list(threshold = 30, duration = 3),
+          time.resolution = "year"
+        )
+      } else if (idx == "prcptot") {
+        result <- agroindexGrid(
+          index.code = idx,
+          pr = ensemble_data$pr,
+          time.resolution = "year"
+        )
+      } else {
+        result <- agroindexGrid(
+          index.code = idx,
+          t2m = ensemble_data$t2m,
+          time.resolution = "year"
+        )
+      }
+      
+      member_dims[[idx]] <- dim(result$Data)
+    }
+    
+    # Check that all have same member dimension
+    member_counts <- sapply(member_dims, function(x) x[4])
+    if (all(member_counts == member_counts[1])) {
+      results$member_consistency <- list(success = TRUE, member_dims = member_dims)
+      cat("  ✓ Member consistency test passed\n")
+      cat("    All indices have", member_counts[1], "members\n")
+    } else {
+      results$member_consistency <- list(success = FALSE, 
+                                        error = paste("Inconsistent member counts:", paste(member_counts, collapse = ", ")))
+      cat("  ✗ Member consistency test failed\n")
+    }
+  }, error = function(e) {
+    results$member_consistency <- list(success = FALSE, error = e$message)
+    cat("  ✗ Member consistency test failed:", e$message, "\n")
+  })
+  
+  return(results)
+}
+
+# Run member dimension tests
+member_results <- test_member_dimension()
+
+# =============================================================================
+# 5.5. TEST ENHANCED DIMENSION DETECTION
+# =============================================================================
+
+cat("\n=== Testing Enhanced Dimension Detection ===\n")
+
+test_dimension_detection <- function() {
+  results <- list()
+  
+  # Test 1: Data in (member x time x lat x lon) format
+  cat("Testing data in (member x time x lat x lon) format...\n")
+  tryCatch({
+    # Create data in (member x time x lat x lon) format
+    n_members <- 3
+    n_days <- 365
+    n_lat <- 2
+    n_lon <- 2
+    
+    # Create synthetic data
+    member_first_data <- array(rnorm(n_members * n_days * n_lat * n_lon), 
+                               dim = c(n_members, n_days, n_lat, n_lon))
+    
+    # Create grid with (member x time x lat x lon) dimensions
+    member_first_grid <- list()
+    member_first_grid$Data <- member_first_data
+    attr(member_first_grid$Data, "dimensions") <- c("member", "time", "lat", "lon")
+    
+    # Set up coordinates and dates
+    lats <- c(40, 41)
+    lons <- c(-3, -2)
+    dates <- seq(as.Date("2020-01-01"), by = "day", length.out = n_days)
+    
+    member_first_grid$xyCoords <- list(x = lons, y = lats)
+    member_first_grid$Dates <- list(start = dates, end = dates)
+    member_first_grid$Variable <- list(varName = "t2m", level = NULL)
+    member_first_grid$Members <- paste0("member_", 1:n_members)
+    class(member_first_grid) <- c("grid", "regular")
+    
+    # Test the function with member-first data
+    result <- agroindexGrid(
+      index.code = "avg",
+      t2m = member_first_grid,
+      time.resolution = "year"
+    )
+    
+    # Check that conversion worked
+    result_dims <- dim(result$Data)
+    if (length(result_dims) == 4 && result_dims[4] == n_members) {
+      results$member_first_format <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Member-first format test passed\n")
+      cat("    Input dims: (member x time x lat x lon) =", paste(dim(member_first_data), collapse = " x "), "\n")
+      cat("    Output dims:", paste(result_dims, collapse = " x "), "\n")
+    } else {
+      results$member_first_format <- list(success = FALSE, 
+                                        error = paste("Expected 4D array with", n_members, "members, got", length(result_dims), "D"))
+      cat("  ✗ Member-first format test failed\n")
+    }
+  }, error = function(e) {
+    results$member_first_format <- list(success = FALSE, error = e$message)
+    cat("  ✗ Member-first format test failed:", e$message, "\n")
+  })
+  
+  # Test 2: Data already in (time x lat x lon x member) format (should not convert)
+  cat("Testing data already in (time x lat x lon x member) format...\n")
+  tryCatch({
+    # Create data in standard climate4R format
+    n_members <- 2
+    n_days <- 100
+    n_lat <- 2
+    n_lon <- 2
+    
+    # Create synthetic data in standard format
+    standard_data <- array(rnorm(n_days * n_lat * n_lon * n_members), 
+                           dim = c(n_days, n_lat, n_lon, n_members))
+    
+    # Create grid with standard dimensions
+    standard_grid <- list()
+    standard_grid$Data <- standard_data
+    attr(standard_grid$Data, "dimensions") <- c("time", "lat", "lon", "member")
+    
+    # Set up coordinates and dates
+    lats <- c(40, 41)
+    lons <- c(-3, -2)
+    dates <- seq(as.Date("2020-01-01"), by = "day", length.out = n_days)
+    
+    standard_grid$xyCoords <- list(x = lons, y = lats)
+    standard_grid$Dates <- list(start = dates, end = dates)
+    standard_grid$Variable <- list(varName = "t2m", level = NULL)
+    standard_grid$Members <- paste0("member_", 1:n_members)
+    class(standard_grid) <- c("grid", "regular")
+    
+    # Test the function with standard format data
+    result <- agroindexGrid(
+      index.code = "avg",
+      t2m = standard_grid,
+      time.resolution = "year"
+    )
+    
+    # Check that no conversion was needed
+    result_dims <- dim(result$Data)
+    if (length(result_dims) == 4 && result_dims[4] == n_members) {
+      results$standard_format <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Standard format test passed (no conversion needed)\n")
+      cat("    Input dims: (time x lat x lon x member) =", paste(dim(standard_data), collapse = " x "), "\n")
+      cat("    Output dims:", paste(result_dims, collapse = " x "), "\n")
+    } else {
+      results$standard_format <- list(success = FALSE, 
+                                     error = paste("Expected 4D array with", n_members, "members, got", length(result_dims), "D"))
+      cat("  ✗ Standard format test failed\n")
+    }
+  }, error = function(e) {
+    results$standard_format <- list(success = FALSE, error = e$message)
+    cat("  ✗ Standard format test failed:", e$message, "\n")
+  })
+  
+  # Test 3: Mixed dimension formats (some grids in member-first, others in standard)
+  cat("Testing mixed dimension formats...\n")
+  tryCatch({
+    # Create one grid in member-first format
+    n_members <- 2
+    n_days <- 50
+    n_lat <- 2
+    n_lon <- 2
+    
+    # TX grid in member-first format
+    tx_member_first <- array(rnorm(n_members * n_days * n_lat * n_lon), 
+                             dim = c(n_members, n_days, n_lat, n_lon))
+    tx_grid <- list()
+    tx_grid$Data <- tx_member_first
+    attr(tx_grid$Data, "dimensions") <- c("member", "time", "lat", "lon")
+    
+    # TN grid in standard format
+    tn_standard <- array(rnorm(n_days * n_lat * n_lon * n_members), 
+                         dim = c(n_days, n_lat, n_lon, n_members))
+    tn_grid <- list()
+    tn_grid$Data <- tn_standard
+    attr(tn_grid$Data, "dimensions") <- c("time", "lat", "lon", "member")
+    
+    # Set up common attributes
+    lats <- c(40, 41)
+    lons <- c(-3, -2)
+    dates <- seq(as.Date("2020-01-01"), by = "day", length.out = n_days)
+    
+    for (grid in list(tx_grid, tn_grid)) {
+      grid$xyCoords <- list(x = lons, y = lats)
+      grid$Dates <- list(start = dates, end = dates)
+      grid$Variable <- list(varName = ifelse(grid == tx_grid, "tx", "tn"), level = NULL)
+      grid$Members <- paste0("member_", 1:n_members)
+      class(grid) <- c("grid", "regular")
+    }
+    
+    # Test with mixed formats
+    result <- agroindexGrid(
+      index.code = "dr",
+      tx = tx_grid,  # member-first format
+      tn = tn_grid,  # standard format
+      time.resolution = "year"
+    )
+    
+    # Check that both grids were handled correctly
+    result_dims <- dim(result$Data)
+    if (length(result_dims) == 4 && result_dims[4] == n_members) {
+      results$mixed_formats <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Mixed formats test passed\n")
+      cat("    TX input dims: (member x time x lat x lon) =", paste(dim(tx_member_first), collapse = " x "), "\n")
+      cat("    TN input dims: (time x lat x lon x member) =", paste(dim(tn_standard), collapse = " x "), "\n")
+      cat("    Output dims:", paste(result_dims, collapse = " x "), "\n")
+    } else {
+      results$mixed_formats <- list(success = FALSE, 
+                                   error = paste("Expected 4D array with", n_members, "members, got", length(result_dims), "D"))
+      cat("  ✗ Mixed formats test failed\n")
+    }
+  }, error = function(e) {
+    results$mixed_formats <- list(success = FALSE, error = e$message)
+    cat("  ✗ Mixed formats test failed:", e$message, "\n")
+  })
+  
+  # Test 4: Unusual dimension order (should trigger warning)
+  cat("Testing unusual dimension order...\n")
+  tryCatch({
+    # Create data in unusual order: (lat x lon x time x member)
+    n_members <- 2
+    n_days <- 30
+    n_lat <- 2
+    n_lon <- 2
+    
+    unusual_data <- array(rnorm(n_lat * n_lon * n_days * n_members), 
+                          dim = c(n_lat, n_lon, n_days, n_members))
+    
+    unusual_grid <- list()
+    unusual_grid$Data <- unusual_data
+    attr(unusual_grid$Data, "dimensions") <- c("lat", "lon", "time", "member")
+    
+    # Set up coordinates and dates
+    lats <- c(40, 41)
+    lons <- c(-3, -2)
+    dates <- seq(as.Date("2020-01-01"), by = "day", length.out = n_days)
+    
+    unusual_grid$xyCoords <- list(x = lons, y = lats)
+    unusual_grid$Dates <- list(start = dates, end = dates)
+    unusual_grid$Variable <- list(varName = "t2m", level = NULL)
+    unusual_grid$Members <- paste0("member_", 1:n_members)
+    class(unusual_grid) <- c("grid", "regular")
+    
+    # Test the function with unusual format data
+    result <- agroindexGrid(
+      index.code = "avg",
+      t2m = unusual_grid,
+      time.resolution = "year"
+    )
+    
+    # Check that conversion worked despite unusual order
+    result_dims <- dim(result$Data)
+    if (length(result_dims) == 4 && result_dims[4] == n_members) {
+      results$unusual_order <- list(success = TRUE, dims = result_dims)
+      cat("  ✓ Unusual order test passed (conversion with warning)\n")
+      cat("    Input dims: (lat x lon x time x member) =", paste(dim(unusual_data), collapse = " x "), "\n")
+      cat("    Output dims:", paste(result_dims, collapse = " x "), "\n")
+    } else {
+      results$unusual_order <- list(success = FALSE, 
+                                   error = paste("Expected 4D array with", n_members, "members, got", length(result_dims), "D"))
+      cat("  ✗ Unusual order test failed\n")
+    }
+  }, error = function(e) {
+    results$unusual_order <- list(success = FALSE, error = e$message)
+    cat("  ✗ Unusual order test failed:", e$message, "\n")
+  })
+  
+  return(results)
+}
+
+# Run dimension detection tests
+dimension_results <- test_dimension_detection()
+
+# =============================================================================
+# 6. TEST ERROR HANDLING AND EDGE CASES
 # =============================================================================
 
 cat("\n=== Testing Error Handling and Edge Cases ===\n")
@@ -730,6 +1433,14 @@ cat("FAO Agronomic Indices:", fao_agronomic_summary$successes, "passed,", fao_ag
 cdi_cei_summary <- count_results(cdi_cei_results)
 cat("CDI/CEI Indices:", cdi_cei_summary$successes, "passed,", cdi_cei_summary$failures, "failed\n")
 
+# Member dimension summary
+member_summary <- count_results(member_results)
+cat("Member Dimension Tests:", member_summary$successes, "passed,", member_summary$failures, "failed\n")
+
+# Dimension detection summary
+dimension_summary <- count_results(dimension_results)
+cat("Dimension Detection Tests:", dimension_summary$successes, "passed,", dimension_summary$failures, "failed\n")
+
 # Error handling summary
 error_summary <- count_results(error_results)
 cat("Error Handling Tests:", error_summary$successes, "passed,", error_summary$failures, "failed\n")
@@ -740,9 +1451,9 @@ cat("Validation Tests:", validation_summary$successes, "passed,", validation_sum
 
 # Overall summary
 total_successes <- fao_tier1_summary$successes + fao_agronomic_summary$successes + 
-                  cdi_cei_summary$successes + error_summary$successes + validation_summary$successes
+                  cdi_cei_summary$successes + member_summary$successes + dimension_summary$successes + error_summary$successes + validation_summary$successes
 total_failures <- fao_tier1_summary$failures + fao_agronomic_summary$failures + 
-                  cdi_cei_summary$failures + error_summary$failures + validation_summary$failures
+                  cdi_cei_summary$failures + member_summary$failures + dimension_summary$failures + error_summary$failures + validation_summary$failures
 
 cat("\nOVERALL RESULTS:", total_successes, "passed,", total_failures, "failed\n")
 
@@ -785,6 +1496,26 @@ if (total_failures > 0) {
     for (name in names(cdi_cei_results)) {
       if (!cdi_cei_results[[name]]$success) {
         cat("  -", name, ":", cdi_cei_results[[name]]$error, "\n")
+      }
+    }
+  }
+  
+  # Report member dimension failures
+  if (member_summary$failures > 0) {
+    cat("\nMember Dimension Failures:\n")
+    for (name in names(member_results)) {
+      if (!member_results[[name]]$success) {
+        cat("  -", name, ":", member_results[[name]]$error, "\n")
+      }
+    }
+  }
+  
+  # Report dimension detection failures
+  if (dimension_summary$failures > 0) {
+    cat("\nDimension Detection Failures:\n")
+    for (name in names(dimension_results)) {
+      if (!dimension_results[[name]]$success) {
+        cat("  -", name, ":", dimension_results[[name]]$error, "\n")
       }
     }
   }
