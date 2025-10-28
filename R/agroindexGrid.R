@@ -105,7 +105,8 @@
 #' }
 #'
 #' @author J. Bedia is the original author of climdexGrid.R 
-#' @colaborator P. Lavin is the author of the modifications to the original code
+#' @colaborator Sara Herrera is the author of CDI and CEI indices
+#' @colaborator Pablo Lavin is the author of the modifications in main function agroindexGrid
 #' @export
 
 agroindexGrid <- function(index.code,
@@ -163,6 +164,74 @@ agroindexGrid <- function(index.code,
                                         "dt_ed_rnagsn", "dl_agsn", "dc_agsn", "rn_agsn", 
                                         "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", 
                                         "dc_txh_agsn", "dc_tnh_agsn", "CDI", "CEI"))
+    
+
+    # Enhanced dimension conversion function
+    convert_dimension_order <- function(grid, var_name) {
+        if (is.null(grid)) return(NULL)
+        
+        data_dims <- dim(grid$Data)
+        dim_names <- attr(grid$Data, "dimensions")
+        
+        # Only process if we have 4 dimensions
+        if (length(data_dims) != 4) return(grid)
+        
+        # Check if we have the required dimensions
+        required_dims <- c("member", "time", "lat", "lon")
+        if (!all(required_dims %in% dim_names)) return(grid)
+        
+        # Get current dimension order
+        current_order <- match(required_dims, dim_names)
+        
+        # Check if member is first (user's format: member x time x lat x lon)
+        if (current_order[1] == 1) {
+            message("[", Sys.time(), "] Converting ", var_name, " from (member x time x lat x lon) to (time x lat x lon x member)")
+            
+            # Transpose to climate4R standard: (time x lat x lon x member)
+            target_order <- c(2, 3, 4, 1)  # time, lat, lon, member
+            grid$Data <- aperm(grid$Data, target_order)
+            attr(grid$Data, "dimensions") <- c("time", "lat", "lon", "member")
+            
+            # Ensure member information is properly set
+            if (is.null(grid$Members)) {
+                n_members <- data_dims[1]
+                grid$Members <- paste0("member_", 1:n_members)
+            }
+            
+            return(grid)
+        }
+        
+        # Check if already in climate4R format (time x lat x lon x member)
+        if (all(current_order == c(2, 3, 4, 1))) {
+            # Already in correct format, no conversion needed
+            return(grid)
+        }
+        
+        # Handle other dimension orders if needed
+        if (any(current_order != c(2, 3, 4, 1))) {
+            warning("Unusual dimension order detected for ", var_name, 
+                    ": ", paste(dim_names, collapse = " x "), 
+                    ". Attempting to convert to (time x lat x lon x member)")
+            
+            # Try to convert to standard order
+            target_order <- order(current_order)
+            grid$Data <- aperm(grid$Data, target_order)
+            attr(grid$Data, "dimensions") <- c("time", "lat", "lon", "member")
+        }
+        
+        return(grid)
+    }
+    
+    # Apply dimension conversion to all input grids
+    if (!is.null(tn)) tn <- convert_dimension_order(tn, "tn")
+    if (!is.null(tx)) tx <- convert_dimension_order(tx, "tx")
+    if (!is.null(pr)) pr <- convert_dimension_order(pr, "pr")
+    if (!is.null(t2m)) t2m <- convert_dimension_order(t2m, "t2m")
+    if (!is.null(hurs)) hurs <- convert_dimension_order(hurs, "hurs")
+    if (!is.null(sfcwind)) sfcwind <- convert_dimension_order(sfcwind, "sfcwind")
+    if (!is.null(sp)) sp <- convert_dimension_order(sp, "sp")
+    if (!is.null(ssrd)) ssrd <- convert_dimension_order(ssrd, "ssrd")
+    if (!is.null(pvpot)) pvpot <- convert_dimension_order(pvpot, "pvpot")
     aux <- read.master()
     metadata <- aux[grep(paste0("^", index.code, "$"), aux$code, fixed = FALSE), ]
     a <- c(!is.null(tn), !is.null(tx), !is.null(pr), !is.null(t2m), !is.null(hurs), 
@@ -717,7 +786,7 @@ agroindexGrid <- function(index.code,
 #' \item \strong{units}: The units of the index (when different from those of the input variable)
 #' }
 #' @references FAO agroclimatic indices documentation
-#' @author J. Bedia (original), P. Lavin (modifications)
+#' @author J. Bedia (original)
 #' @export
 #' @importFrom magrittr %>%
 
