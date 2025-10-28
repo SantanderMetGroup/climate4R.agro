@@ -41,9 +41,19 @@ A comprehensive R package for calculating agroclimatic indices from climate data
 
 ## Installation
 
+The recommended procedure for installing the package is using the devtools package.
+
 ```r
 # Install from GitHub
 devtools::install_github("SantanderMetGroup/climate4R.agro")
+```
+
+A list of all available indices and the atomic functions calculating them is printed on screen with:
+
+```r
+library(climate4R.agro)
+agroindexShow()
+?agroindexGrid   # see the examples 
 ```
 
 ## Usage
@@ -139,14 +149,6 @@ str(grid_object)
 - **Improved robustness**: Enhanced error handling and edge case management
 - **Grid compatibility**: Fixed climate4R grid object structure compatibility
 - **Performance improvements**: Optimized parallel processing and grid operations
-
-## Citation
-
-If you use this package in your research, please cite:
-
-```r
-citation("climate4R.agro")
-```
 
 ## License
 
