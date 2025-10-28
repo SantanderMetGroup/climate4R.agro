@@ -1,5 +1,20 @@
 # NEWS
 
-## v0.0.0 (31 Oct 2025)
+## v0.1.0 (27 Oct 2025)
+ * Comprehensive test suite implementation
+ * Fixed critical bugs in FAO Tier1 index calculations
+ * Enhanced error handling and edge case management
+ * Improved grid compatibility and robustness
+ * Added complete testing coverage for all 23 indices
+ * Optimized parallel processing and grid operations
+
+## v0.0.1 (20 Oct 2025)
+ * Initial implementation of agroindexGrid function
+ * Added FAO Tier1 indices (11 indices)
+ * Added FAO Agronomic Season indices (12 indices)
+ * Added CDI and CEI stress indices
+ * Basic error handling and validation
+
+## v0.0.0 (13 Oct 2025)
  * Package release
 
