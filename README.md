@@ -63,11 +63,33 @@ agroindexShow()
 ```r
 library(climate4R.agro)
 
-# Calculate a single index
-result <- agroindexGrid(
+# Calculate GSL (Growing Season Length)
+gsl_result <- agroindexGrid(
   index.code = "gsl",
-  tx = tx_grid,  # Maximum temperature grid
-  tn = tn_grid, # Minimum temperature grid
+  tm = tmean_grid,  # Mean temperature
+  index.arg.list = list(lat = 40),  # Latitude required for GSL
+  time.resolution = "year"
+)
+
+# Calculate Average Temperature with custom period
+avg_result <- agroindexGrid(
+  index.code = "avg",
+  tm = tmean_grid,
+  index.arg.list = list(
+    year.start = "2000-06-01",
+    year.end = "2000-08-31"
+  ),
+  time.resolution = "year"
+)
+
+# Calculate Number of Heatwaves
+nhw_result <- agroindexGrid(
+  index.code = "nhw",
+  tx = tx_grid,  # Maximum temperature
+  index.arg.list = list(
+    threshold = 35,  # Temperature threshold in degrees C
+    duration = 3     # Minimum duration in days
+  ),
   time.resolution = "year"
 )
 
@@ -79,6 +101,8 @@ results <- lapply(indices, function(idx) {
     tx = tx_grid,
     tn = tn_grid,
     pr = pr_grid,
+    tm = tmean_grid,
+    index.arg.list = if (idx == "gsl") list(lat = 40) else list(),
     time.resolution = "year"
   )
 })
@@ -91,10 +115,39 @@ results <- lapply(indices, function(idx) {
 cdi_result <- agroindexGrid(
   index.code = "CDI",
   tx = tx_grid,
-  tn = tn_grid,
+  tm = tmean_grid,
+  hurs = hurs_grid,
+  index.arg.list = list(
+    bounds = data.frame(
+      tx = c(25, 35),
+      tm = c(20, 30),
+      hurs = c(30, 70)
+    ),
+    combiner = "any",
+    min_duration = 5
+  )
+)
+
+# Number of Days Exceeding Threshold
+nd_thre_result <- agroindexGrid(
+  index.code = "nd_thre",
+  tm = tmean_grid,
+  index.arg.list = list(
+    threshold = 30,
+    direction = "geq"  # "geq" for >=, "leq" for <=
+  ),
+  time.resolution = "year"
+)
+
+# Length of Dry Spell
+lds_result <- agroindexGrid(
+  index.code = "lds",
   pr = pr_grid,
-  bounds = list(tx = c(25, 35), tn = c(10, 20), pr = c(0, 5)),
-  combiner = "any"
+  index.arg.list = list(
+    wet.threshold = 1,      # Minimum precipitation for wet day (mm)
+    spell.length = "max"    # "max", "mean", or numeric value
+  ),
+  time.resolution = "year"
 )
 
 # FAO Agronomic Season indices
@@ -109,7 +162,7 @@ agsn_result <- agroindexGrid(
 
 ## Input Data Requirements
 
-The package expects `climate4R` grid objects with the following structure:
+The package expects `climate4R` grid objects with daily temporal resolution. Grids should have the following structure:
 
 ```r
 # Example grid structure
@@ -129,9 +182,39 @@ str(grid_object)
 
 ### Required Variables by Index Type
 
-- **Temperature indices**: `tx` (max temp), `tn` (min temp), `t2m` (mean temp)
+- **Temperature indices**: `tx` (max temp), `tn` (min temp), `tm` (mean temp)
 - **Precipitation indices**: `pr` (precipitation)
 - **Multi-variable indices**: Combination of temperature and precipitation variables
+
+### Index-Specific Arguments (`index.arg.list`)
+
+Many indices require additional parameters passed via `index.arg.list`:
+
+- **lat**: Latitude in degrees (required for GSL, optional for others)
+- **threshold**: Threshold value for indices like `nd_thre`, `nhw`, `prcptot_thre`
+- **duration**: Duration in days for indices like `nhw`, `ns`
+- **direction**: "geq" or "leq" for `nd_thre` (greater/less than threshold)
+- **wet.threshold**: Minimum precipitation for wet day (default: 1 mm)
+- **spell.length**: For `lds` and `ns` (e.g., "max", "mean", or numeric)
+- **spell.type**: "wet" or "dry" for `ns`
+- **year.start**, **year.end**: Date strings for custom periods (e.g., "2000-06-01")
+- **pnan**: Maximum percentage of missing data allowed (default: 25%)
+
+For FAO agronomic indices (`agroindexFAO`), additional arguments include: `shc`, `rndy`, `rnlg`, `txh`, `tnh`.
+
+For CDI/CEI indices, arguments include: `bounds` (data.frame), `combiner`, `min_duration`.
+
+See the help files for individual index functions (e.g., `?gsl`, `?avg`) for complete parameter lists.
+
+## Important Notes
+
+### FAO Indices Time Resolution
+
+**FAO indices are calculated year by year by definition.** The `time.resolution` parameter is ignored for FAO indices, and the output will always be yearly data regardless of the `time.resolution` setting.
+
+### Parameter Naming: `tm` (Temperature Mean)
+
+The function uses `tm` (temperature mean) as the parameter name, which directly matches FAO naming conventions. This simplifies the interface and removes the need for internal parameter mapping.
 
 ## Dependencies
 
@@ -143,9 +226,12 @@ str(grid_object)
 
 ## Recent Updates
 
-### Version 0.1
-- **Comprehensive test suite**: Added complete testing coverage for all indices
-- **Bug fixes**: Fixed critical issues in FAO Tier1 index calculations
+### Version 0.1 (Latest)
+- **Improved FAO index handling**: Fixed yearly output for FAO Tier1 indices
+- **Parameter naming**: Changed from `t2m` to `tm` to match FAO naming conventions
+- **Enhanced documentation**: Comprehensive documentation of `index.arg.list` parameters
+- **Code cleanup**: Removed unused `input.arg.list` parameter
+- **Bug fixes**: Fixed critical issues in FAO Tier1 index calculations and dimension handling
 - **Improved robustness**: Enhanced error handling and edge case management
 - **Grid compatibility**: Fixed climate4R grid object structure compatibility
 - **Performance improvements**: Optimized parallel processing and grid operations
