@@ -9,13 +9,12 @@ agroindexGrid(
   tn = NULL,
   tx = NULL,
   pr = NULL,
-  t2m = NULL,
+  tm = NULL,
   hurs = NULL,
   sfcwind = NULL,
   sp = NULL,
   ssrd = NULL,
   pvpot = NULL,
-  input.arg.list = list(),
   index.arg.list = list(),
   cal = "365_day",
   time.resolution = "year",
@@ -37,7 +36,9 @@ and stress indices (CDI, CEI). See Details.}
 
 \item{pr}{A climate4R dataset of daily precipitation (mm)}
 
-\item{t2m}{A climate4R dataset of daily air temperature at 2 m (degrees C)}
+\item{tm}{A climate4R dataset of daily mean air temperature (degrees C).
+This parameter matches FAO naming conventions (tm = temperature mean).
+For indices that don't require tm specifically, it can be derived from tx and tn if provided.}
 
 \item{hurs}{A climate4R dataset of daily relative humidity (\\%)}
 
@@ -49,10 +50,22 @@ and stress indices (CDI, CEI). See Details.}
 
 \item{pvpot}{A climate4R dataset of daily vapor pressure potential (Pa)}
 
-\item{input.arg.list}{Optional. A list of arguments internally passed to the index calculation functions.}
-
-\item{index.arg.list}{Optional (but depending on the specific index might be necessary). A list of specific arguments
-for the target index. See Details and the help files for individual index functions.}
+\item{index.arg.list}{Optional list of index-specific arguments. Depending on the index, this may be required.
+Common arguments include:
+\itemize{
+\item \strong{lat}: Latitude in degrees (required for GSL, optional for others)
+\item \strong{threshold}: Threshold value for indices like nd_thre, nhw, prcptot_thre
+\item \strong{duration}: Duration in days for indices like nhw, ns
+\item \strong{direction}: "geq" or "leq" for nd_thre (greater/less than threshold)
+\item \strong{wet.threshold}: Minimum precipitation for wet day (default: 1 mm)
+\item \strong{spell.length}: For lds and ns (e.g., "max", "mean", or numeric)
+\item \strong{spell.type}: "wet" or "dry" for ns
+\item \strong{year.start}, \strong{year.end}: Date strings for custom periods (e.g., "2000-06-01")
+\item \strong{pnan}: Maximum percentage of missing data allowed (default: 25\\%)
+}
+For FAO agronomic indices (agroindexFAO), additional arguments include: shc, rndy, rnlg, txh, tnh.
+For CDI/CEI indices, arguments include: bounds (data.frame), combiner, min_duration.
+See the help files for individual index functions (e.g., \code{?gsl}, \code{?avg}) for complete parameter lists.}
 
 \item{cal}{A calendar definition. Default to 365-day calendar (not used by FAO/CDI/CEI indices, kept for compatibility).}
 
@@ -109,13 +122,13 @@ data("tasmin.grid")
 data("pr.grid")
 
 ## Example 1: Growing Season Length (GSL)
-gsl.grid <- agroindexGrid(t2m = tasmax.grid, 
+gsl.grid <- agroindexGrid(tm = tasmax.grid, 
                           index.code = "gsl",
                           time.resolution = "year",
                           index.arg.list = list(lat = 40))
 
 ## Example 2: Average temperature with custom season
-avg.grid <- agroindexGrid(t2m = tasmax.grid,
+avg.grid <- agroindexGrid(tm = tasmax.grid,
                           index.code = "avg",
                           time.resolution = "year",
                           index.arg.list = list(
@@ -148,8 +161,6 @@ cdi.grid <- agroindexGrid(tx = tasmax.grid,
 }
 \author{
 J. Bedia is the original author of climdexGrid.R
-
-Sara Herrera is the author of CDI and CEI indices
 
 Pablo Lavin is the author of the modifications in main function agroindexGrid
 }
