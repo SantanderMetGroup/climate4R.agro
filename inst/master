@@ -1,4 +1,4 @@
-code;longname;indexfun;tn;tx;pr;t2m;hurs;sfcwind;sp;ssrd;pvpot;units;description
+code;longname;indexfun;tn;tx;pr;tm;hurs;sfcwind;sp;ssrd;pvpot;units;description
 gsl;Growing_Season_Length;gsl;0;0;0;1;0;0;0;0;0;days;Annual_count_between_first_span_of_at_least_6_days_with_TM>5degC_and_first_span_after_July_1st_of_6_days_with_TM<5degC
 avg;Average_Temperature;avg;0;0;0;1;0;0;0;0;0;degC;Average_value_of_daily_temperature_in_defined_period
 nd_thre;Number_of_Days_Exceeding_Threshold;nd_thre;0;0;0;1;0;0;0;0;0;days;Number_of_days_exceeding_or_below_a_given_threshold
