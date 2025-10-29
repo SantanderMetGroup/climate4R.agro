@@ -1,11 +1,17 @@
 # NEWS
 
-## v0.1.0 (27 Oct 2025)
- * Comprehensive test suite implementation
+## v0.1.2 (Latest)
+ * Fixed FAO Tier1 indices to correctly return yearly data instead of daily
+ * Changed parameter name from `t2m` to `tm` to match FAO naming conventions directly
+ * Removed unused `input.arg.list` parameter
+ * Enhanced documentation for `index.arg.list` with comprehensive parameter descriptions
+ * Updated parameter documentation for `tm` naming convention
+ * Updated README with detailed usage examples and index-specific arguments guide
+
+## v0.1.1 (27 Oct 2025)
  * Fixed critical bugs in FAO Tier1 index calculations
  * Enhanced error handling and edge case management
  * Improved grid compatibility and robustness
- * Added complete testing coverage for all 23 indices
  * Optimized parallel processing and grid operations
 
 ## v0.0.1 (20 Oct 2025)
@@ -17,4 +23,3 @@
 
 ## v0.0.0 (13 Oct 2025)
  * Package release
-
