@@ -22,5 +22,5 @@ dc_rnlg_agsn;Number_High_Rain_Days_Agronomic_Season;agroindexFAO;1;1;1;0;0;0;0;0
 tm_agsn;Average_Temperature_Agronomic_Season;agroindexFAO;1;1;1;0;0;0;0;0;0;degC;Average_daily_temperature_in_Agronomic_Season
 dc_txh_agsn;Number_Hot_Tmax_Days_Agronomic_Season;agroindexFAO;1;1;1;0;0;0;0;0;0;days;Number_of_hot_tmax_days_in_Agronomic_Season
 dc_tnh_agsn;Number_Hot_Tmin_Days_Agronomic_Season;agroindexFAO;1;1;1;0;0;0;0;0;0;days;Number_of_hot_tmin_days_in_Agronomic_Season
-CDI;Condition_Duration_Index;CDI;0;1;0;1;1;0;0;0;0;days;Daily_accumulator_for_multi-variable_day_counts_with_minimum_run_constraint
-CEI;Condition_Excess_Index;CEI;0;1;0;1;1;0;0;0;0;degC;Daily_accumulator_of_excess_over_lower_bound_for_single_variable_with_minimum_run_constraint
+CDI;Condition_Duration_Index;CDI;0;1;0;0;0;0;0;0;0;days;Daily_accumulator_for_multi-variable_day_counts_with_minimum_run_constraint
+CEI;Condition_Excess_Index;CEI;0;1;0;0;0;0;0;0;0;degC;Daily_accumulator_of_excess_over_lower_bound_for_single_variable_with_minimum_run_constraint
