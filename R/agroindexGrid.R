@@ -384,8 +384,6 @@ agroindexGrid <- function(index.code,
     }
     out.list <- apply_fun(1:n.mem, function(x) {
         tryCatch({
-        # if (n.mem > 1) message("[", Sys.time(), "] Calculating ",
-                               # index.code, " for member ", x, " ...")
         # Extract data as 3D arrays (time x lat x lon) following agroclimGrid pattern
         # Use helper function to simplify repetitive code
         aux.tx <- extract_data_array(tx, x, n.mem)
@@ -586,46 +584,93 @@ agroindexGrid <- function(index.code,
                 index.arg.list[["index.code"]] <- index.code
             }
             
-            # Process lat-lon loops with error tracking
-            error_count_fao <- 0
-            error_display_count_fao <- 0
-            latloop <- lapply(1:length(lats), function(l) {
-                lonloop <- lapply(1:n_lons, function(lo) {
-                    index.arg.list[["lat"]] <- lats[l]
-                    # Extract time series for this point from each data array
-                    point_data <- lapply(input.arg.list, function(z) z[, l, lo])
-                    
-                    # Call FAO function with point data and index arguments
-                    tryCatch({
-                        result <- do.call(metadata$indexfun, c(point_data, index.arg.list))
-                        # GSL returns a list, extract the GSL component
-                        if (index.code == "gsl" && is.list(result)) {
-                            result$GSL
-                        } else {
-                            result
-                        }
-                    }, error = function(e) {
-                        error_count_fao <<- error_count_fao + 1
-                        if (error_display_count_fao < MAX_ERROR_DISPLAY) {
-                            warning("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
-                            error_display_count_fao <<- error_display_count_fao + 1
-                        }
-                        NA
-                    })
-                })
-                do.call(abind::abind, list(lonloop, along = 0))
-            })
+            # Process lat-lon loops with error tracking and parallelization
+            MAX_ERROR_DISPLAY <- 10
             
-            # Report error summary for FAO indices
-            if (error_count_fao > 0) {
-                message("[", Sys.time(), "] FAO indices: ", error_count_fao, " grid points encountered errors")
+            # Create all lat/lon combinations for parallel processing
+            grid_points <- expand.grid(l = 1:length(lats), lo = 1:n_lons)
+            total_points <- nrow(grid_points)
+            
+            # Set up parallel processing for FAO agronomic indices (lat/lon loops)
+            # Parallelize at grid point level if:
+            # - parallel is requested AND
+            # - we have many grid points (>10) AND  
+            # - (single member OR not already parallelizing at member level)
+            # Note: We avoid nested parallelization (members already parallel) to prevent overhead
+            use_fao_parallel <- (parallel && total_points > 10 && n.mem == 1)
+            if (use_fao_parallel) {
+                fao_parallel.pars <- parallelCheck(parallel, max.ncores, ncores)
+                fao_apply_fun <- selectPar.pplyFun(fao_parallel.pars, .pplyFUN = "lapply")
+                if (fao_parallel.pars$hasparallel) {
+                    message("[", Sys.time(), "] Parallelizing FAO agronomic index calculation over ", 
+                           total_points, " grid points using ", fao_parallel.pars$ncores, " cores")
+                } else {
+                    message("[", Sys.time(), "] Parallel processing requested but not available (Windows or single core). Using sequential processing for ", 
+                           total_points, " grid points.")
+                    fao_apply_fun <- lapply
+                }
+            } else {
+                fao_apply_fun <- lapply
+                fao_parallel.pars <- list(hasparallel = FALSE, cl = NULL)
             }
             
-            # Reconstruct output array
-            # latloop_bound has dimensions (lat, lon, time) from abind
-            # We need (time, lat, lon), so use aperm(..., c(3, 1, 2))
-            latloop_bound <- do.call(abind::abind, list(latloop, along = 0))
-            out.aux[["Data"]] <- unname(aperm(latloop_bound, c(3, 1, 2)))
+            # Process all grid points (parallelized if enabled)
+            error_info <- list(count = 0, display_count = 0)
+            grid_results <- fao_apply_fun(1:total_points, function(i) {
+                l <- grid_points$l[i]
+                lo <- grid_points$lo[i]
+                index.arg.list[["lat"]] <- lats[l]
+                # Extract time series for this point from each data array
+                point_data <- lapply(input.arg.list, function(z) z[, l, lo])
+                
+                # Call FAO function with point data and index arguments
+                tryCatch({
+                    result <- do.call(metadata$indexfun, c(point_data, index.arg.list))
+                    # GSL returns a list, extract the GSL component
+                    if (index.code == "gsl" && is.list(result)) {
+                        result$GSL
+                    } else {
+                        result
+                    }
+                }, error = function(e) {
+                    error_info$count <<- error_info$count + 1
+                    if (error_info$display_count < MAX_ERROR_DISPLAY) {
+                        warning("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
+                        error_info$display_count <<- error_info$display_count + 1
+                    }
+                    NA
+                })
+            })
+            
+            # Clean up parallel cluster if it was created specifically for FAO grid points
+            if (use_fao_parallel && fao_parallel.pars$hasparallel && !is.null(fao_parallel.pars$cl)) {
+                parallel::stopCluster(fao_parallel.pars$cl)
+            }
+            
+            # Report error summary for FAO indices
+            if (error_info$count > 0) {
+                message("[", Sys.time(), "] FAO indices: ", error_info$count, " out of ", 
+                       total_points, " grid points encountered errors")
+            }
+            
+            # Reconstruct output array: convert list of results to 3D array (time x lat x lon)
+            # Vectorized approach: build array directly from results using index mapping
+            # Each element in grid_results is a vector of length = number of years
+            n_years <- length(grid_results[[1]])
+            
+            # Pre-allocate output array (time x lat x lon)
+            result_array <- array(NA, dim = c(n_years, length(lats), n_lons))
+            
+            # Fill array using vectorized indexing
+            # grid_points is in expand.grid order: all lons for each lat sequentially
+            # Map each grid point result to correct array position
+            for (i in 1:total_points) {
+                l <- grid_points$l[i]
+                lo <- grid_points$lo[i]
+                result_array[, l, lo] <- grid_results[[i]]
+            }
+            
+            out.aux[["Data"]] <- unname(result_array)
             attr(out.aux[["Data"]], "dimensions") <- c("time", "lat", "lon")
             
             # Update dates to yearly (FAO agronomic indices return one value per year)
@@ -663,7 +708,7 @@ agroindexGrid <- function(index.code,
             }
             
             # Memory cleanup
-            rm(list = c("latloop", "latloop_bound", "input.arg.list", "grid.list.aux"), 
+            rm(list = c("grid_results", "result_array", "input.arg.list", "grid.list.aux", "grid_points"), 
                envir = environment(), inherits = FALSE)
             tx <- tn <- pr <- tm <- hurs <- sfcwind <- sp <- ssrd <- pvpot <- NULL
             return(out.aux)
@@ -674,9 +719,37 @@ agroindexGrid <- function(index.code,
             index.arg.list[["dates"]] <- as.Date(refDates)
         }
         
-        # Get coordinates (needed for non-FAO indices)
-        lats <- getGrid(refGrid)$y
-        lons <- getGrid(refGrid)$x
+        # Get coordinates from refGrid (set before member processing)
+        # This ensures we get the full grid coordinates before any transformations
+        # refGrid is assigned from one of the original input grids before member extraction
+        lats <- refGrid$xyCoords$y
+        lons <- refGrid$xyCoords$x
+        
+        # Verify dimensions match the extracted data arrays
+        # Find first available data array to verify dimensions
+        ref_data_array <- NULL
+        for (var_name in c("tx", "tn", "pr", "tm", "hurs", "sfcwind", "sp", "ssrd", "pvpot")) {
+            var_arr <- get(paste0("aux.", var_name), envir = environment())
+            if (!is.null(var_arr) && length(dim(var_arr)) == 3) {
+                ref_data_array <- var_arr
+                break
+            }
+        }
+        
+        if (is.null(ref_data_array)) {
+            stop("No valid data array found to determine grid dimensions")
+        }
+        
+        # Final verification - coordinates should match data array dimensions
+        if (length(lats) != dim(ref_data_array)[2] || length(lons) != dim(ref_data_array)[3]) {
+            stop("Could not determine correct coordinates. ",
+                 "Data array dimensions: ", paste(dim(ref_data_array), collapse=" x "),
+                 " (time x lat x lon). Expected lat=", dim(ref_data_array)[2], 
+                 ", lon=", dim(ref_data_array)[3],
+                 " but got lat=", length(lats), 
+                 ", lon=", length(lons),
+                 ". This may indicate an issue with grid extraction.")
+        }
         
         # Create dates matrix (ndates x 3): year, month, day
         dates_mat <- cbind(
@@ -863,26 +936,37 @@ agroindexGrid <- function(index.code,
         }
         
         # Transform to climate4R grid structure using helper function
-        # Find first available grid to use as template
-        refGrid <- NULL
+        # Extract member grid to use as template (needed for proper grid structure)
+        refGrid_member <- NULL
         grid_vars <- list(tx = tx, tn = tn, pr = pr, tm = tm, hurs = hurs, 
                          sfcwind = sfcwind, sp = sp, ssrd = ssrd, pvpot = pvpot)
         for (var_name in names(grid_vars)) {
             if (!is.null(grid_vars[[var_name]])) {
-                refGrid <- extract_member_grid(grid_vars[[var_name]], x, n.mem)
+                refGrid_member <- extract_member_grid(grid_vars[[var_name]], x, n.mem)
                 break
             }
         }
         
-        if (is.null(refGrid)) {
+        if (is.null(refGrid_member)) {
             stop("No input grid available to use as template")
         }
         
-        # Update refGrid with calculated data and dates
-        refGrid[["Data"]] <- out_array
-        attr(refGrid[["Data"]], "dimensions") <- c("time", "lat", "lon")
-        refGrid[["Dates"]][["start"]] <- start_dates
-        refGrid[["Dates"]][["end"]] <- end_dates
+        # Use refGrid_member as template for output grid structure
+        refGrid_template <- refGrid_member
+        
+        # Update template grid with calculated data and dates
+        # Ensure the template grid has the correct spatial dimensions
+        refGrid_template[["Data"]] <- out_array
+        attr(refGrid_template[["Data"]], "dimensions") <- c("time", "lat", "lon")
+        refGrid_template[["Dates"]][["start"]] <- start_dates
+        refGrid_template[["Dates"]][["end"]] <- end_dates
+        
+        # Update xyCoords to match the actual data dimensions if needed
+        if (length(refGrid_template$xyCoords$y) != length(lats) || 
+            length(refGrid_template$xyCoords$x) != length(lons)) {
+            refGrid_template$xyCoords$y <- lats
+            refGrid_template$xyCoords$x <- lons
+        }
         
         # Memory cleanup
         rm(list = c("aux.tx", "aux.tn", "aux.pr", "aux.tm", "aux.hurs", 
@@ -891,7 +975,7 @@ agroindexGrid <- function(index.code,
            envir = environment(), inherits = FALSE)
         tx <- tn <- pr <- tm <- hurs <- sfcwind <- sp <- ssrd <- pvpot <- NULL
         gc()  # Force garbage collection
-        return(refGrid)
+        return(refGrid_template)
         }, error = function(e) {
             warning("Error processing member ", x, ": ", e$message)
             # Create a grid with NA values but same structure as other members
