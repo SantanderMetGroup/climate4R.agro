@@ -286,7 +286,7 @@ nd_thre <- function(any, dates, threshold, direction = "geq", year = NULL, year.
     }
     
     if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$end) & !is.na(ind.year$end)) {
+      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
         data.year = data[ind.year$start:ind.year$end]
         if (sum(is.na(data.year)) < 0.01*pnan*length(data.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           if (direction == "geq") {
