@@ -13,7 +13,7 @@ Print a table on the screen with the following columns:
 for the argument \code{index.code} in \code{\link{agroindexGrid}}
 \item \strong{longname}: Long description of the index
 \item \strong{index.fun}: The name of the internal function used to calculate it
-\item \strong{tn,tx,tm,pr,hurs,sfcwind,sp,ssrd,pvpot}: Logical values (0/1) indicating the input variables required for index calculation
+\item \strong{tn,tx,tm,pr,hurs,sfcwind,ssrd}: Logical values (0/1) indicating the input variables required for index calculation
 \item \strong{units}: The units of the index (when different from those of the input variable)
 }
 }

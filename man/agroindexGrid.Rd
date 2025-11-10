@@ -12,9 +12,7 @@ agroindexGrid(
   tm = NULL,
   hurs = NULL,
   sfcwind = NULL,
-  sp = NULL,
   ssrd = NULL,
-  pvpot = NULL,
   index.arg.list = list(),
   cal = "365_day",
   time.resolution = "year",
@@ -44,11 +42,7 @@ For indices that don't require tm specifically, it can be derived from tx and tn
 
 \item{sfcwind}{A climate4R dataset of daily surface wind speed (m/s)}
 
-\item{sp}{A climate4R dataset of daily surface pressure (Pa)}
-
 \item{ssrd}{A climate4R dataset of daily surface solar radiation downwards (J/m^2)}
-
-\item{pvpot}{A climate4R dataset of daily vapor pressure potential (Pa)}
 
 \item{index.arg.list}{Optional list of index-specific arguments. Depending on the index, this may be required.
 Common arguments include:
