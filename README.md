@@ -58,8 +58,6 @@ agroindexShow()
 
 ## Usage
 
-### Basic Usage
-
 ```r
 library(climate4R.agro)
 
@@ -106,11 +104,7 @@ results <- lapply(indices, function(idx) {
     time.resolution = "year"
   )
 })
-```
 
-### Advanced Usage
-
-```r
 # CDI with custom bounds
 cdi_result <- agroindexGrid(
   index.code = "CDI",
@@ -212,29 +206,12 @@ See the help files for individual index functions (e.g., `?gsl`, `?avg`) for com
 
 **FAO indices are calculated year by year by definition.** The `time.resolution` parameter is ignored for FAO indices, and the output will always be yearly data regardless of the `time.resolution` setting.
 
-### Parameter Naming: `tm` (Temperature Mean)
-
-The function uses `tm` (temperature mean) as the parameter name, which directly matches FAO naming conventions. This simplifies the interface and removes the need for internal parameter mapping.
-
 ## Dependencies
 
 - `transformeR` - Grid manipulation and processing
-- `visualizeR` - Visualization utilities
 - `dplyr` - Data manipulation
 - `magrittr` - Pipe operator
 - `abind` - Array binding
-
-## Recent Updates
-
-### Version 0.1 (Latest)
-- **Improved FAO index handling**: Fixed yearly output for FAO Tier1 indices
-- **Parameter naming**: Changed from `t2m` to `tm` to match FAO naming conventions
-- **Enhanced documentation**: Comprehensive documentation of `index.arg.list` parameters
-- **Code cleanup**: Removed unused `input.arg.list` parameter
-- **Bug fixes**: Fixed critical issues in FAO Tier1 index calculations and dimension handling
-- **Improved robustness**: Enhanced error handling and edge case management
-- **Grid compatibility**: Fixed climate4R grid object structure compatibility
-- **Performance improvements**: Optimized parallel processing and grid operations
 
 ## License
 
