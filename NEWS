@@ -1,12 +1,19 @@
 # NEWS
 
-## v0.1.2 (Latest)
+## v0.1.3 (Latest)
+ * Improved error handling for FAO Agronomic Indices
+ * Improved memory management in batch processing
+ * Robust array reconstruction
+ * CDI/CEI result validation and explicit aggregation
+ * Dependencies: now auto-loads its FAO helpers and ensures every worker loads so parallel agronomic runs see the same toolbox as serial ones and no longer fail with missing functions.
+ * Diagnostic logging: Added NA-detection reporting (lat/lon, year counts, NA counts per variable) so the code points directly at data issues instead of silently returning NAs.
+
+## v0.1.2 (3 Nov 2025)
  * Fixed FAO Tier1 indices to correctly return yearly data instead of daily
- * Changed parameter name from `t2m` to `tm` to match FAO naming conventions directly
- * Removed unused `input.arg.list` parameter
  * Enhanced documentation for `index.arg.list` with comprehensive parameter descriptions
- * Updated parameter documentation for `tm` naming convention
  * Updated README with detailed usage examples and index-specific arguments guide
+ * Code Quality Improvements: better code organization, helper functions at the top, consistent error handling patterns
+ * Improved Comments: clarified complex operations, consistent naming, explained error handling strategy
 
 ## v0.1.1 (27 Oct 2025)
  * Fixed critical bugs in FAO Tier1 index calculations
@@ -14,7 +21,7 @@
  * Improved grid compatibility and robustness
  * Optimized parallel processing and grid operations
 
-## v0.0.1 (20 Oct 2025)
+## v0.1.0 (20 Oct 2025)
  * Initial implementation of agroindexGrid function
  * Added FAO Tier1 indices (11 indices)
  * Added FAO Agronomic Season indices (12 indices)
