@@ -25,10 +25,10 @@
 #' @param tn Vector of minimum temperature data
 #' @param pnan maximum percentage of missing data (pr, tx, tn) allowed in one year to compute the indices
 #' @param shc maximum soil holding capacity
-#' @param rndy amount of rain in a day to be considered as “rainy” day (in mm/day)
-#' @param rnlg “large” rainfall event (mm/day) 
-#' @param txh “hot” tmax (degC)
-#' @param tnh “hot” tmin (degC)
+#' @param rndy amount of rain in a day to be considered as "rainy" day (in mm/day)
+#' @param rnlg "large" rainfall event (mm/day) 
+#' @param txh "hot" tmax (degC)
+#' @param tnh "hot" tmin (degC)
 #' @import transformeR
 #' @importFrom stats na.omit
 #' @author R. Manzanas
@@ -238,19 +238,6 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
 }
 
 
-
-#' #' @title Occurrence and length of binary spells
-#' #' @description Computes ccurrence and length of binary spells)
-#' #' @param v Vector
-#' #' @author R. Manzanas
-#' 
-#' binSpell <-  function(v) {
-#'   ix <- c(which(v[-length(v)] != v[-1]), length(v));
-#'   out <- list()
-#'   out$len <- diff(c(0, ix))
-#'   out$val <- v[ix]
-#'   return(out)
-#' }
 
 #' @title ET0
 #' @description computes ET0, accroding to Hargreaves equation

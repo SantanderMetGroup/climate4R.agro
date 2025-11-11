@@ -17,7 +17,7 @@
 #' @param start_date Date of the first row for each `id` (used to build the
 #'   calendar and season mapping).
 #' @param season_start,season_end Character `"mm-dd"` giving the season window.
-#'   The window may **cross years** (e.g., `"07-01"` → `"06-30"`).
+#'   The window may **cross years** (e.g., `"07-01"` -> `"06-30"`).
 #'
 #' @param lower,upper Numeric bounds defining the valid interval for `x`.
 #'   \describe{
@@ -36,7 +36,7 @@
 #'     `x < upper`.}
 #'   }
 #'
-#' @param min_duration Integer ≥ 1. Minimum number of **consecutive qualifying
+#' @param min_duration Integer >= 1. Minimum number of **consecutive qualifying
 #'   days** required before the run contributes to the cumulative:
 #'   \itemize{
 #'     \item If `min_duration = 1`, every qualifying day contributes its excess
@@ -59,16 +59,16 @@
 #'
 #' @return A tibble with daily rows and columns:
 #' \itemize{
-#'   \item `id` — identifier (station/cell).
-#'   \item `day_idx` — 1..n index within the full time series per `id`.
-#'   \item `season_id`, `season_label` — season identifiers.
-#'   \item `cond` — logical; `TRUE` when `x` lies within the specified
+#'   \item `id` - identifier (station/cell).
+#'   \item `day_idx` - 1..n index within the full time series per `id`.
+#'   \item `season_id`, `season_label` - season identifiers.
+#'   \item `cond` - logical; `TRUE` when `x` lies within the specified
 #'          interval.
-#'   \item `valid` — logical; `TRUE` once the current TRUE-run reaches
+#'   \item `valid` - logical; `TRUE` once the current TRUE-run reaches
 #'          `min_duration`.
-#'   \item `excess` — numeric; `pmax(x - lower, 0)` on qualifying days,
+#'   \item `excess` - numeric; `pmax(x - lower, 0)` on qualifying days,
 #'          else 0.
-#'   \item `cum_excess` — season-wise cumulative of excess with per-run
+#'   \item `cum_excess` - season-wise cumulative of excess with per-run
 #'          correction.
 #' }
 #' 
@@ -84,8 +84,14 @@
 #' conservative for runs that are still in progress at the season boundary.
 #'
 #' @examples
-#' # Suppose df has columns: id, date, temp
-#' # Accumulate excess temperature above 25°C whenever 25 ≤ temp (no upper cap),
+#' set.seed(42)
+#' df <- tibble::tibble(
+#'   id = rep(c("A", "B"), each = 10),
+#'   date = as.Date("2000-01-01") + rep(0:9, times = 2),
+#'   temp = runif(20, 20, 40)
+#' )
+#'
+#' # Accumulate excess temperature above 25 degC whenever 25 <= temp (no upper cap),
 #' # with runs of at least 3 consecutive qualifying days.
 #' CEI(
 #'   df,
@@ -95,7 +101,7 @@
 #'   min_duration = 3
 #' )
 #'
-#' # Same but only count when 25 ≤ temp ≤ 35, exclusive upper bound
+#' # Same but only count when 25 <= temp <= 35, exclusive upper bound
 #' CEI(
 #'   df,
 #'   id = "id", x_col = "temp",
@@ -108,6 +114,7 @@
 #' @importFrom dplyr group_by mutate ungroup filter select arrange left_join if_else lag row_number n
 #' @importFrom tibble as_tibble
 #' @importFrom magrittr %>%
+#' @importFrom rlang .data
 #' @export
 CEI <- function(
     df,

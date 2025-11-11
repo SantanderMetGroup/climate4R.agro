@@ -67,8 +67,8 @@ binSpell <- function(data) {
 #' @return Indices marking the start and the end of a given year (or a user-defined portion of the year). The search is done within the "dates" matrix
 #' @param dates Matrix containing the full range of dates (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param year Year of interest (e.g. 1995)
-#' @param year.start User-defined start of the year [in "YYYY-MM-DD" format]
-#' @param year.end User-defined end of the year [in "YYYY-MM-DD" format]
+#' @param year.start User-defined start of the year in \code{"YYYY-MM-DD"} format
+#' @param year.end User-defined end of the year in \code{"YYYY-MM-DD"} format
 #' @author R. Manzanas
 #' @export
 
@@ -208,8 +208,8 @@ gsl <- function(tm, dates, lat, pnan = 25) {
 #' @param tm Vector with data (e.g. daily mean temperature)
 #' @param dates Matrix containing the full range of dates corresponding to "tm" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -259,8 +259,8 @@ avg <- function(tm, dates, year = NULL, year.start = NULL, year.end = NULL, pnan
 #' @param threshold Threshold considered. Must be in the same units of "data"
 #' @param direction "geq" (greater or equal to) or "leq" (lower or equal to)
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -321,8 +321,8 @@ nd_thre <- function(any, dates, threshold, direction = "geq", year = NULL, year.
 #' @param threshold Threshold considered. Must be in the same units of "tx"
 #' @param duration Duration (in days) considered to define the heatwave
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -374,8 +374,8 @@ nhw <- function(tx, dates, threshold, duration, year = NULL, year.start = NULL, 
 #' @param tn Vector with daily minimum temperature
 #' @param dates Matrix containing the full range of dates corresponding to "tx" and "tn" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -427,8 +427,8 @@ dr <- function(tx, tn, dates, year = NULL, year.start = NULL, year.end = NULL, p
 #' @param dates Matrix containing the full range of dates corresponding to "pr" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param wet.threshold Threshold considered to define wet days. Must be in the same units of "pr"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -479,8 +479,8 @@ prcptot <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL
 #' @param dates Matrix containing the full range of dates corresponding to "pr" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param wet.threshold Threshold considered to define wet days. Must be in the same units of "pr"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -532,8 +532,8 @@ nrd <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL, ye
 #' @param length.spell Either "mean" or "maximum" length spell
 #' @param wet.threshold Threshold considered to define wet days. Must be in the same units of "pr"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -594,8 +594,8 @@ lds <- function(pr, dates, length.spell = "mean", wet.threshold = 1, year = NULL
 #' @param dates Matrix containing the full range of dates corresponding to "pr" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param wet.threshold Threshold considered to define wet days. Must be in the same units of "pr"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -646,8 +646,8 @@ sdii <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL, y
 #' @param dates Matrix containing the full range of dates corresponding to "pr" (ndates x 3 size); e.g. rbind(c(1995, 3, 1), c(1995, 3, 2), ...)
 #' @param threshold Threshold considered to define strong rain. Must be in the same units of "pr"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas
@@ -700,8 +700,8 @@ prcptot_thre <- function(pr, dates, threshold = 50, year = NULL, year.start = NU
 #' @param duration Duration (in days) of spells
 #' @param type.spell Either "dry" or "wet"
 #' @param year Vector with years of interest (e.g. 1990:1995)
-#' @param year.start Vector of dates [in "YYYY-MM-DD" format] defining the beginning of a portion of interest within each year (e.g., the agronomic season)
-#' @param year.end Vector of dates [in "YYYY-MM-DD" format] defining the end of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.start Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)
+#' @param year.end Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)
 #' @param pnan Any year with a percentage of NA data above "pnan" will be ignored
 #' @param lat Latitude (NULL) to indicate that latitude information is not used.
 #' @author R. Manzanas

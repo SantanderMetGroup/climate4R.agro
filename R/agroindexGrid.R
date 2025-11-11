@@ -16,42 +16,7 @@
 #     You should have received a copy of the GNU General Public License
 #     along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#' @title Agroclimatic Indices in Climate4R
-#' @description Calculation of agroclimatic indices including FAO tier1 indices and CDI/CEI stress indices.
-#' The function processes climate4R grid objects for seamless integration.
-#' @param tn A climate4R dataset of daily minimum temperature (degrees C)
-#' @param tx A climate4R dataset of daily maximum temperature (degrees C)
-#' @param pr A climate4R dataset of daily precipitation (mm)
-#' @param tm A climate4R dataset of daily mean air temperature (degrees C).
-#' This parameter matches FAO naming conventions (tm = temperature mean).
-#' For indices that don't require tm specifically, it can be derived from tx and tn if provided.
-#' @param hurs A climate4R dataset of daily relative humidity (\%)
-#' @param sfcwind A climate4R dataset of daily surface wind speed (m/s)
-#' @param ssrd A climate4R dataset of daily surface solar radiation downwards (J/m^2)
-#' @param cal A calendar definition. Default to 365-day calendar (not used by FAO/CDI/CEI indices, kept for compatibility).
-#' @param time.resolution Output time resolution. Choices are "month", "year" (default) and "climatology".
-#' Note: FAO indices are calculated year by year by definition and will ignore this parameter.
-#' @param index.code Character string, indicating the specific code of the agroclimatic index. 
-#' Options include FAO tier1 indices (gsl, avg, nd_thre, nhw, dr, prcptot, nrd, lds, sdii, prcptot_thre, ns),
-#' FAO agronomic season indices (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn, dt_ed_rnagsn, dl_agsn, 
-#' dc_agsn, rn_agsn, avrn_agsn, dc_rnlg_agsn, tm_agsn, dc_txh_agsn, dc_tnh_agsn), 
-#' and stress indices (CDI, CEI). See Details.
-#' @param index.arg.list Optional list of index-specific arguments. Depending on the index, this may be required.
-#' Common arguments include:
-#' \itemize{
-#'   \item \strong{lat}: Latitude in degrees (required for GSL, optional for others)
-#'   \item \strong{threshold}: Threshold value for indices like nd_thre, nhw, prcptot_thre
-#'   \item \strong{duration}: Duration in days for indices like nhw, ns
-#'   \item \strong{direction}: "geq" or "leq" for nd_thre (greater/less than threshold)
-#'   \item \strong{wet.threshold}: Minimum precipitation for wet day (default: 1 mm)
-#'   \item \strong{spell.length}: For lds and ns (e.g., "max", "mean", or numeric)
-#'   \item \strong{spell.type}: "wet" or "dry" for ns
-#'   \item \strong{year.start}, \strong{year.end}: Date strings for custom periods (e.g., "2000-06-01")
-#'   \item \strong{pnan}: Maximum percentage of missing data allowed (default: 25\%)
-#' }
-#' For FAO agronomic indices (agroindexFAO), additional arguments include: shc, rndy, rnlg, txh, tnh.
-#' For CDI/CEI indices, arguments include: bounds (data.frame), combiner, min_duration.
-#' See the help files for individual index functions (e.g., \code{?gsl}, \code{?avg}) for complete parameter lists.
+#' @noRd
 #' @template templateParallelParams
 #' @import transformeR
 #' @importFrom parallel stopCluster
@@ -59,17 +24,13 @@
 #' @importFrom utils head
 #' @importFrom abind abind
 #' @importFrom dplyr group_by summarize pull
-#' @importFrom utils getExportedValue
 #' @details \code{\link{agroindexShow}} will display on screen a full list of available agroclimatic indices and their codes.
-#' 
-#' \strong{Index Groups}
-#' \itemize{
-#'   \item \strong{FAO Tier1 indices}: Basic agroclimatic indices (gsl, avg, nd_thre, nhw, dr, prcptot, nrd, lds, sdii, prcptot_thre, ns)
-#'   \item \strong{FAO Agronomic Season indices}: Indices based on water balance and agronomic season definition
-#'   \item \strong{Stress indices}: CDI (Condition Duration Index) and CEI (Condition Excess Index) for multi-variable stress analysis
-#' }
-#' 
-#' For index-specific arguments, refer to the help files of individual index functions.
+#' Index groups include: (i) FAO Tier1 indices such as gsl, avg, nd_thre, nhw, dr,
+#' prcptot, nrd, lds, sdii, prcptot_thre, and ns; (ii) FAO agronomic season indices
+#' derived from the water balance (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn,
+#' dt_ed_rnagsn, dl_agsn, dc_agsn, rn_agsn, avrn_agsn, dc_rnlg_agsn, tm_agsn,
+#' dc_txh_agsn, dc_tnh_agsn); and (iii) stress indices CDI (Condition Duration Index)
+#' and CEI (Condition Excess Index). For index-specific arguments, refer to the help files of individual index functions.
 #'
 #' @template templateParallel
 #'
@@ -171,6 +132,47 @@ agroindexGrid <- function(index.code,
         }
         return(grid_list)
     }
+    # Helper to ensure member dimension with memory-safe fallback
+    ensure_member_dimension <- function(grid_obj) {
+        if (is.null(grid_obj)) return(NULL)
+        member_size <- tryCatch({
+            getShape(grid_obj, "member")
+        }, error = function(...) NA_real_)
+        if (!is.na(member_size) && member_size > 0) {
+            return(grid_obj)
+        }
+        tryCatch({
+            redim(grid_obj, member = TRUE, var = FALSE)
+        }, error = function(e) {
+            msg <- conditionMessage(e)
+            mem_error <- grepl("cannot allocate", msg, ignore.case = TRUE) ||
+                         grepl("no se puede ubicar", msg, ignore.case = TRUE)
+            if (!mem_error) stop(e)
+            data_arr <- grid_obj[["Data"]]
+            if (is.null(data_arr)) stop(e)
+            original_dims <- dim(data_arr)
+            new_data <- array(data_arr, dim = c(1, original_dims))
+            dim_names <- attr(data_arr, "dimensions")
+            if (is.null(dim_names)) {
+                default_names <- switch(length(original_dims),
+                    `3` = c("time", "lat", "lon"),
+                    `2` = c("time", "loc"),
+                    `1` = c("time"),
+                    NULL)
+                dim_names <- default_names
+            }
+            attr(new_data, "dimensions") <- c("member", dim_names)
+            grid_obj[["Data"]] <- new_data
+            if (!is.null(grid_obj[["Members"]])) {
+                if (length(grid_obj[["Members"]]) == 0) {
+                    grid_obj[["Members"]] <- list("member" = "member_1")
+                }
+            } else {
+                grid_obj[["Members"]] <- list("member" = "member_1")
+            }
+            grid_obj
+        })
+    }
     
     # Helper function to extract 1D time series from 3D arrays (time x lat x lon)
     # After redim(member = FALSE), arrays are always 3D in climate4R
@@ -237,7 +239,7 @@ agroindexGrid <- function(index.code,
         list(tx = tx, tn = tn, pr = pr, tm = tm, hurs = hurs,
              sfcwind = sfcwind, ssrd = ssrd)
     }
-
+    # Helper function to get first non-null item
     first_non_null <- function(items) {
         for (obj in items) {
             if (!is.null(obj)) {
@@ -246,7 +248,7 @@ agroindexGrid <- function(index.code,
         }
         NULL
     }
-
+    # Helper function to get member template grid
     get_member_template_grid <- function(member_idx, n_mem) {
         grid_vars <- get_grid_vars_list()
         candidate <- first_non_null(grid_vars)
@@ -254,51 +256,20 @@ agroindexGrid <- function(index.code,
         extract_member_grid(candidate, member_idx, n_mem)
     }
     
-    # Helper function to load function from various paths
-    load_function_from_paths <- function(fun_name, possible_paths) {
-        is_absolute_path <- function(path) {
-            grepl("^([A-Za-z]:|/|\\\\)", path)
-        }
-        extra_bases <- getOption("climate4R.agro.extra_paths")
-        expanded_paths <- unique(unlist(lapply(possible_paths, function(path) {
-            if (is.null(path) || path == "") {
-                return(character(0))
-            }
-            candidates <- path
-            if (!is.null(extra_bases) && length(extra_bases) > 0 && !is_absolute_path(path)) {
-                candidates <- c(candidates, file.path(extra_bases, path))
-            }
-            candidates
-        })))
-        for (path in expanded_paths) {
-            if (!is.null(path) && path != "") {
-                actual_path <- tryCatch(normalizePath(path, winslash = "\\/", mustWork = FALSE),
-                                        error = function(...) path)
-                if (file.exists(actual_path)) {
-                    source(actual_path, local = FALSE)
-                    if (exists(fun_name, mode = "function", inherits = TRUE)) {
-                        fun_obj <- get(fun_name, mode = "function", inherits = TRUE)
-                        attr(fun_obj, "source_path") <- actual_path
-                        return(fun_obj)
-                    }
-                }
-            }
-        }
-        return(NULL)
-    }
+    # Helper function to assign function to cluster
     cluster_assign_function <- function(cl, fun_name, fun_obj) {
         if (is.null(cl) || !inherits(cl, "cluster")) return(invisible(NULL))
         if (is.null(fun_obj) || !is.function(fun_obj)) return(invisible(NULL))
         tryCatch({
-            parallel::clusterCall(cl, function(fn_name, fn_obj) {
-                assign(fn_name, fn_obj, envir = .GlobalEnv)
-                invisible(NULL)
-            }, fun_name, fun_obj)
+            tmp_env <- new.env(parent = emptyenv())
+            assign(fun_name, fun_obj, envir = tmp_env)
+            parallel::clusterExport(cl, varlist = fun_name, envir = tmp_env)
         }, error = function(e) {
             # Silently ignore export errors (e.g., serialization issues)
         })
         invisible(NULL)
     }
+    # Helper function to load packages on cluster
     cluster_load_packages <- function(cl, pkgs) {
         if (is.null(cl) || !inherits(cl, "cluster")) return(invisible(NULL))
         pkgs <- unique(pkgs)
@@ -330,6 +301,7 @@ agroindexGrid <- function(index.code,
         }
         invisible(NULL)
     }
+    # Helper function to combine member results
     combine_member_results <- function(member_list, station_flag, metadata_row, idx_code) {
         if (length(member_list) == 0) {
             stop("No member results to combine")
@@ -391,29 +363,6 @@ agroindexGrid <- function(index.code,
         if (station_flag) combined %<>% redim(drop = FALSE, loc = TRUE, member = FALSE)
         invisible(combined)
     }
-    ensure_function_available <- function(fun_name, possible_paths) {
-        if (exists(fun_name, mode = "function", inherits = TRUE)) {
-            return(get(fun_name, mode = "function", inherits = TRUE))
-        }
-        fun_obj <- NULL
-        tryCatch({
-            fun_obj <<- get(fun_name, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-        }, error = function(...) {})
-        if (is.null(fun_obj)) {
-            tryCatch({
-                if (requireNamespace("climate4R.agro", quietly = TRUE)) {
-                    fun_obj <<- getExportedValue("climate4R.agro", fun_name)
-                }
-            }, error = function(...) {})
-        }
-        if (is.null(fun_obj)) {
-            fun_obj <- load_function_from_paths(fun_name, possible_paths)
-        }
-        if (!is.null(fun_obj) && is.function(fun_obj) && !exists(fun_name, mode = "function", inherits = TRUE)) {
-            assign(fun_name, fun_obj, envir = .GlobalEnv)
-        }
-        fun_obj
-    }
     aux <- read.master()
     metadata <- aux[grep(paste0("^", index.code, "$"), aux$code, fixed = FALSE), ]
     # Check which variables are provided
@@ -455,7 +404,38 @@ agroindexGrid <- function(index.code,
         
         # Intersect grids temporally
         original_names <- names(grid.list)
-        grid.list <- intersectGrid(grid.list, type = "temporal", which.return = 1:length(grid.list))
+        safe_temporal_intersection <- function(gl) {
+            tryCatch({
+                intersectGrid(gl, type = "temporal", which.return = 1:length(gl))
+            }, error = function(e) {
+                msg <- conditionMessage(e)
+                mem_error <- grepl("cannot allocate", msg, ignore.case = TRUE) ||
+                             grepl("no se puede ubicar", msg, ignore.case = TRUE)
+                if (!mem_error) stop(e)
+                common_dates <- Reduce(
+                    intersect,
+                    lapply(gl, function(g) {
+                        if (is.null(g)) return(NULL)
+                        as.Date(g$Dates$start)
+                    })
+                )
+                if (length(common_dates) == 0) {
+                    stop("Temporal intersection resulted in an empty set of dates after memory-safe fallback.")
+                }
+                fall_back <- lapply(gl, function(g) {
+                    if (is.null(g)) return(NULL)
+                    grid_dates <- as.Date(g$Dates$start)
+                    idx <- match(common_dates, grid_dates)
+                    idx <- idx[!is.na(idx)]
+                    if (length(idx) == 0) {
+                        stop("Fallback intersection found no matching dates for at least one grid.")
+                    }
+                    subsetDimension(g, dimension = "time", indices = idx)
+                })
+                fall_back
+            })
+        }
+        grid.list <- safe_temporal_intersection(grid.list)
         namesgridlist <- original_names
         
         # Check spatial consistency and interpolate if needed
@@ -481,7 +461,7 @@ agroindexGrid <- function(index.code,
         var_obj <- get(var_name)
         if (!is.null(var_obj)) {
             if (!station) station <- typeofGrid(var_obj) == "station"
-            assign(var_name, redim(var_obj, member = TRUE, var = FALSE))
+            assign(var_name, ensure_member_dimension(var_obj))
         }
     }
     # Get reference grid name (first non-null grid)
@@ -518,105 +498,29 @@ agroindexGrid <- function(index.code,
     
     # Pre-load agroindexFAO function if needed (for FAO agronomic indices)
     if (metadata$indexfun == "agroindexFAO") {
-        fun_name <- "agroindexFAO"
-        if (exists(fun_name, mode = "function", inherits = TRUE)) {
-            fao_fun_loaded <- get(fun_name, mode = "function", inherits = TRUE)
-        } else {
-            tryCatch({
-                fao_fun_loaded <- get(fun_name, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-            }, error = function(e1) {
-                tryCatch({
-                    if (requireNamespace("climate4R.agro", quietly = TRUE)) {
-                        fao_fun_loaded <<- getExportedValue("climate4R.agro", fun_name)
-                    }
-                }, error = function(e2) {
-                    # Try to source the file directly (for development)
-                    possible_paths <- list(
-                        "R/indicesFAO.R",
-                        system.file("R", "indicesFAO.R", package = "climate4R.agro"),
-                        file.path(system.file(package = "climate4R.agro"), "..", "R", "indicesFAO.R"),
-                        file.path(getwd(), "R", "indicesFAO.R")
-                    )
-                    fao_fun_loaded <<- load_function_from_paths(fun_name, possible_paths)
-                })
-            })
+        if (!exists("agroindexFAO", mode = "function")) {
+            stop("Function 'agroindexFAO' not available. Please load climate4R.agro before calling agroindexGrid().")
         }
-        
-        if (is.null(fao_fun_loaded) || !is.function(fao_fun_loaded)) {
-            stop("Could not find function 'agroindexFAO'. ",
-                 "Make sure the climate4R.agro package is loaded or source 'R/indicesFAO.R' first.")
+        if (!exists("computeET0", mode = "function")) {
+            stop("Function 'computeET0' not available. Please load climate4R.agro before calling agroindexGrid().")
         }
-        computeET0_loaded <- ensure_function_available(
-            "computeET0",
-            list(
-                "R/indicesFAO.R",
-                system.file("R", "indicesFAO.R", package = "climate4R.agro"),
-                file.path(system.file(package = "climate4R.agro"), "..", "R", "indicesFAO.R"),
-                file.path(getwd(), "R", "indicesFAO.R")
-            )
-        )
-        if (is.null(computeET0_loaded) || !is.function(computeET0_loaded)) {
-            stop("Could not find function 'computeET0'. Make sure the climate4R.agro package is loaded or source 'R/indicesFAO.R'.")
+        if (!exists("binSpell", mode = "function")) {
+            stop("Function 'binSpell' not available. Please load climate4R.agro before calling agroindexGrid().")
         }
-        binSpell_loaded <- ensure_function_available(
-            "binSpell",
-            list(
-                "R/indicesFAO_tier1.R",
-                system.file("R", "indicesFAO_tier1.R", package = "climate4R.agro"),
-                file.path(system.file(package = "climate4R.agro"), "..", "R", "indicesFAO_tier1.R"),
-                file.path(getwd(), "R", "indicesFAO_tier1.R")
-            )
-        )
-        if (is.null(binSpell_loaded) || !is.function(binSpell_loaded)) {
-            stop("Could not find function 'binSpell'. Make sure the climate4R.agro package is loaded or source 'R/indicesFAO_tier1.R'.")
-        }
+        fao_fun_loaded <- get("agroindexFAO", mode = "function")
+        computeET0_loaded <- get("computeET0", mode = "function")
+        binSpell_loaded <- get("binSpell", mode = "function")
     }
     
     if (index.code %in% c("CDI", "CEI")) {
-        fun_name <- index.code
-        # Try to find the function using multiple methods
-        if (exists(fun_name, mode = "function", inherits = TRUE)) {
-            cdi_cei_fun_loaded <- get(fun_name, mode = "function", inherits = TRUE)
-        } else {
-            tryCatch({
-                cdi_cei_fun_loaded <- get(fun_name, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-            }, error = function(e1) {
-                tryCatch({
-                    if (requireNamespace("climate4R.agro", quietly = TRUE)) {
-                        cdi_cei_fun_loaded <<- getExportedValue("climate4R.agro", fun_name)
-                    }
-                }, error = function(e2) {
-                    # Try to source the file directly (for development)
-                    possible_paths <- list(
-                        if (fun_name == "CDI") "R/indexCDI.R" else if (fun_name == "CEI") "R/indexCEI.R" else paste0("R/index", fun_name, ".R"),
-                        system.file("R", paste0("index", fun_name, ".R"), package = "climate4R.agro"),
-                        file.path(system.file(package = "climate4R.agro"), "..", "R", paste0("index", fun_name, ".R")),
-                        file.path(getwd(), "R", paste0("index", fun_name, ".R"))
-                    )
-                    cdi_cei_fun_loaded <<- load_function_from_paths(fun_name, possible_paths)
-                })
-            })
+        if (!exists(index.code, mode = "function")) {
+            stop("Function '", index.code, "' not available. Please load climate4R.agro before calling agroindexGrid().")
         }
-        
-        # Also load build_seasons_map
-        if (!exists("build_seasons_map", mode = "function", inherits = TRUE)) {
-            build_seasons_paths <- list(
-                "R/build_seasons_map.R",
-                system.file("R", "build_seasons_map.R", package = "climate4R.agro"),
-                file.path(system.file(package = "climate4R.agro"), "..", "R", "build_seasons_map.R"),
-                file.path(getwd(), "R", "build_seasons_map.R")
-            )
-            build_seasons_map_loaded <- load_function_from_paths("build_seasons_map", build_seasons_paths)
-        } else {
-            build_seasons_map_loaded <- get("build_seasons_map", mode = "function", inherits = TRUE)
+        if (!exists("build_seasons_map", mode = "function")) {
+            stop("Function 'build_seasons_map' not available. Please load climate4R.agro before calling agroindexGrid().")
         }
-        
-        # Verify functions are loaded
-        if (is.null(cdi_cei_fun_loaded) || !is.function(cdi_cei_fun_loaded)) {
-            stop("Could not find function '", fun_name, 
-                 "'. Make sure the climate4R.agro package is loaded or source 'R/index", 
-                 fun_name, ".R' first. Also ensure build_seasons_map is available.")
-        }
+        cdi_cei_fun_loaded <- get(index.code, mode = "function")
+        build_seasons_map_loaded <- get("build_seasons_map", mode = "function")
     }
     allow_member_parallel <- TRUE
     if (n.mem > 1) {
@@ -647,7 +551,7 @@ agroindexGrid <- function(index.code,
             }, add = TRUE)
 
             if (!is.null(parallel.pars$cl)) {
-                cluster_load_packages(parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr"))
+                cluster_load_packages(parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
                 export_fun_to_cluster <- function(name) {
                     if (exists(name, mode = "function", inherits = TRUE)) {
                         cluster_assign_function(parallel.pars$cl, name, get(name, mode = "function", inherits = TRUE))
@@ -1048,7 +952,7 @@ agroindexGrid <- function(index.code,
                         })
                     }
                     if (!is.null(fao_parallel.pars$cl)) {
-                        cluster_load_packages(fao_parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr"))
+                        cluster_load_packages(fao_parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
                         export_fun_to_cluster <- function(name) {
                             if (exists(name, mode = "function", inherits = TRUE)) {
                                 cluster_assign_function(fao_parallel.pars$cl, name,
@@ -1117,22 +1021,10 @@ agroindexGrid <- function(index.code,
                         
                         # Call FAO function with point data and index arguments
                         tryCatch({
-                            # Use pre-loaded function if available, otherwise try lookup
                             fun_obj <- fao_fun_loaded
                             if (is.null(fun_obj) || !is.function(fun_obj)) {
-                                # Fallback: try to get the function
-                                fun_obj <- tryCatch({
-                                    get(metadata$indexfun, mode = "function", inherits = TRUE)
-                                }, error = function(e1) {
-                                    tryCatch({
-                                        get(metadata$indexfun, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-                                    }, error = function(e2) {
-                                        # Last resort: try to get from global environment
-                                        get(metadata$indexfun, envir = .GlobalEnv, inherits = TRUE)
-                                    })
-                                })
+                                stop("Function '", metadata$indexfun, "' not available. Please load climate4R.agro before calling agroindexGrid().")
                             }
-                            
                             result <- do.call(fun_obj, c(point_data, index.arg.list))
                             # GSL returns a list, extract the GSL component
                             if (index.code == "gsl" && is.list(result)) {
@@ -1506,61 +1398,12 @@ agroindexGrid <- function(index.code,
                         args_clean <- index.arg.list[!names(index.arg.list) %in% c("dates")]
                         args_list <- c(list(df = df, id = "id", start_date = min(df$date)), args_clean)
                         
-                        # Use pre-loaded function if available, otherwise try lookup
                         cdi_cei_fun <- cdi_cei_fun_loaded
-                        if (is.null(cdi_cei_fun) || !is.function(cdi_cei_fun)) {
-                            # Fallback: try lookup (original code)
-                            fun_name <- metadata$indexfun
-                            if (exists(fun_name, mode = "function", inherits = TRUE)) {
-                                cdi_cei_fun <- get(fun_name, mode = "function", inherits = TRUE)
-                            } else {
-                                tryCatch({
-                                    cdi_cei_fun <- get(fun_name, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-                                }, error = function(e1) {
-                                    tryCatch({
-                                        if (requireNamespace("climate4R.agro", quietly = TRUE)) {
-                                            cdi_cei_fun <<- getExportedValue("climate4R.agro", fun_name)
-                                        }
-                                    }, error = function(e2) {
-                                        # Try sourcing in worker (less ideal but fallback)
-                                        possible_paths <- list(
-                                            if (fun_name == "CDI") "R/indexCDI.R" else if (fun_name == "CEI") "R/indexCEI.R" else paste0("R/index", fun_name, ".R"),
-                                            system.file("R", paste0("index", fun_name, ".R"), package = "climate4R.agro"),
-                                            file.path(system.file(package = "climate4R.agro"), "..", "R", paste0("index", fun_name, ".R")),
-                                            file.path(getwd(), "R", paste0("index", fun_name, ".R"))
-                                        )
-                                        source_file <- NULL
-                                        for (path in possible_paths) {
-                                            if (!is.null(path) && path != "" && file.exists(path)) {
-                                                source_file <- path
-                                                break
-                                            }
-                                        }
-                                        if (!is.null(source_file)) {
-                                            source(source_file, local = FALSE)
-                                            if (exists(fun_name, mode = "function", inherits = TRUE)) {
-                                                cdi_cei_fun <<- get(fun_name, mode = "function", inherits = TRUE)
-                                            }
-                                        }
-                                    })
-                                })
-                            }
-                        }
-                        
-                        if (is.null(cdi_cei_fun) || !is.function(cdi_cei_fun)) {
-                            # Suppress error message in parallel workers to avoid connection errors
-                            error_msg <- paste0("Could not find function '", fun_name, 
-                                              "'. Make sure the climate4R.agro package is loaded or source 'R/index", 
-                                              fun_name, ".R' first. Also ensure build_seasons_map is available.")
-                            if (n.mem == 1) {
-                                stop(error_msg)
-                            } else {
-                                # In parallel workers, just return NA and log error silently
-                                return(rep(NA, length(ref_years)))
-                            }
-                        }
                         
                         # Call CDI/CEI function - only suppress output for multi-member to avoid connection errors
+                        if (is.null(cdi_cei_fun) || !is.function(cdi_cei_fun)) {
+                            stop("Function '", metadata$indexfun, "' not available. Please load climate4R.agro before calling agroindexGrid().")
+                        }
                         if (n.mem > 1) {
                             cdi_cei_result <- suppressMessages(suppressWarnings({
                                 do.call(cdi_cei_fun, args_list)
@@ -1678,34 +1521,12 @@ agroindexGrid <- function(index.code,
                         # Call the index function
                         # For tier1 indices, use agroindexFAO_tier1 wrapper which handles function lookup
                         if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
-                            # Use the wrapper function which internally calls the correct function
-                            # This is more robust than direct function lookup
-                            tryCatch({
-                                tier1_wrapper <- get("agroindexFAO_tier1", mode = "function", inherits = TRUE)
-                                # The wrapper expects index.code as first arg, then ...
-                                args_with_code <- c(list(index.code = index.code), args_list)
-                                index_result <- do.call(tier1_wrapper, args_with_code)
-                            }, error = function(e) {
-                                # Fallback: try direct function lookup
-                                tier1_fun <- NULL
-                                tryCatch({
-                                    tier1_fun <- get(index.code, mode = "function", inherits = TRUE)
-                                }, error = function(e1) {
-                                    tryCatch({
-                                        tier1_fun <<- get(index.code, envir = asNamespace("climate4R.agro"), inherits = FALSE)
-                                    }, error = function(e2) {
-                                        stop("Could not find function '", index.code, 
-                                             "' or wrapper 'agroindexFAO_tier1'. ",
-                                             "Make sure the climate4R.agro package is loaded or source 'R/indicesFAO_tier1.R' first.")
-                                    })
-                                })
-                                if (is.null(tier1_fun) || !is.function(tier1_fun)) {
-                                    stop("Could not find function '", index.code, "'")
-                                }
-                                index_result <<- do.call(tier1_fun, args_list)
-                            })
+                            tier1_wrapper <- get("agroindexFAO_tier1", mode = "function")
+                            args_with_code <- c(list(index.code = index.code), args_list)
+                            index_result <- do.call(tier1_wrapper, args_with_code)
                         } else {
-                            index_result <- do.call(metadata$indexfun, args_list)
+                            index_fun <- get(metadata$indexfun, mode = "function")
+                            index_result <- do.call(index_fun, args_list)
                         }
                         
                         # GSL returns a list, extract the GSL component
@@ -1858,7 +1679,7 @@ agroindexGrid <- function(index.code,
             
             # Check if this is a connection/SIGPIPE error
             is_connection_error <- (
-                grepl("conexi[oó]n", error_msg, ignore.case = TRUE) ||
+                grepl("conexi(o|\\u00F3)n", error_msg, ignore.case = TRUE, perl = TRUE) ||
                 grepl("connection", error_msg, ignore.case = TRUE) ||
                 grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
                 grepl("broken pipe", error_msg, ignore.case = TRUE) ||
@@ -1966,7 +1787,7 @@ agroindexGrid <- function(index.code,
         
         # Check if this is a connection/SIGPIPE error
         is_connection_error <- (
-            grepl("conexi[oó]n", error_msg, ignore.case = TRUE) ||
+            grepl("conexi(o|\\u00F3)n", error_msg, ignore.case = TRUE, perl = TRUE) ||
             grepl("connection", error_msg, ignore.case = TRUE) ||
             grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
             grepl("broken pipe", error_msg, ignore.case = TRUE) ||

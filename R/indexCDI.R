@@ -59,13 +59,13 @@
 #'       below threshold"). Requires argument `k`.}
 #'   }
 #'
-#' @param k Integer ≥ 1, required only when `combiner = "k_of_n"`. It defines
+#' @param k Integer >= 1, required only when `combiner = "k_of_n"`. It defines
 #'   the minimum number of variables that must pass their individual conditions
 #'   for a day to be marked as valid (`cond = TRUE`). For example, with
 #'   three variables and `k = 2`, a day is valid if at least two of them are
 #'   within their specified ranges.
 #'
-#' @param min_duration Integer ≥ 1. Minimum number of **consecutive days**
+#' @param min_duration Integer >= 1. Minimum number of **consecutive days**
 #'   that must satisfy the combined daily condition (`cond = TRUE`) before
 #'   the run starts contributing to the cumulative count.
 #'   - If `min_duration = 1`, every valid day contributes immediately.
@@ -91,13 +91,13 @@
 #'
 #' @return Tibble with daily rows and columns:
 #' \itemize{
-#'   \item `id` — station or spatial cell identifier.
-#'   \item `day_idx` — daily index within the full time series.
-#'   \item `season_id`, `season_label` — season grouping identifiers.
-#'   \item `cond` — logical vector of days meeting the combined condition.
-#'   \item `valid` — logical vector indicating if the day is part of a run
+#'   \item `id` - station or spatial cell identifier.
+#'   \item `day_idx` - daily index within the full time series.
+#'   \item `season_id`, `season_label` - season grouping identifiers.
+#'   \item `cond` - logical vector of days meeting the combined condition.
+#'   \item `valid` - logical vector indicating if the day is part of a run
 #'         that reached the required `min_duration`.
-#'   \item `cum_days` — cumulative number of valid days since season start,
+#'   \item `cum_days` - cumulative number of valid days since season start,
 #'         corrected for incomplete runs.
 #' }
 #' 
@@ -112,6 +112,14 @@
 #' season is still in progress).
 #'
 #' @examples
+#' set.seed(123)
+#' df <- tibble::tibble(
+#'   id = rep(c("A", "B"), each = 10),
+#'   date = as.Date("2000-01-01") + rep(0:9, times = 2),
+#'   temp = runif(20, 5, 35),
+#'   humidity = runif(20, 20, 90)
+#' )
+#'
 #' bounds <- tibble::tibble(
 #'   var = c("temp", "humidity"),
 #'   lower = c(10, 40),
@@ -133,6 +141,8 @@
 #' @importFrom dplyr group_by mutate ungroup filter select arrange left_join across all_of if_else if_all n row_number
 #' @importFrom tibble as_tibble tibble
 #' @importFrom magrittr %>%
+#' @importFrom rlang .data :=
+#' @importFrom stats ave
 #' @export
 CDI <- function(
     df,

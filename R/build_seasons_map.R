@@ -14,7 +14,7 @@
 #' @return A list with:
 #' \itemize{
 #'   \item `seasons`: tibble with columns `start`, `end`, `season_id`, `season_label`.
-#'   \item `season_id`: integer vector length `n_days`, mapping day index → season id (or NA).
+#'   \item `season_id`: integer vector length `n_days`, mapping day index -> season id (or NA).
 #'   \item `dates`: Date vector length `n_days`.
 #' }
 #'
