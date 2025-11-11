@@ -24,7 +24,7 @@ build_seasons_map(
 A list with:
 \itemize{
 \item \code{seasons}: tibble with columns \code{start}, \code{end}, \code{season_id}, \code{season_label}.
-\item \code{season_id}: integer vector length \code{n_days}, mapping day index → season id (or NA).
+\item \code{season_id}: integer vector length \code{n_days}, mapping day index -> season id (or NA).
 \item \code{dates}: Date vector length \code{n_days}.
 }
 }

@@ -38,13 +38,13 @@ agroindexFAO(
 
 \item{shc}{maximum soil holding capacity}
 
-\item{rndy}{amount of rain in a day to be considered as “rainy” day (in mm/day)}
+\item{rndy}{amount of rain in a day to be considered as "rainy" day (in mm/day)}
 
-\item{rnlg}{“large” rainfall event (mm/day)}
+\item{rnlg}{"large" rainfall event (mm/day)}
 
-\item{txh}{“hot” tmax (degC)}
+\item{txh}{"hot" tmax (degC)}
 
-\item{tnh}{“hot” tmin (degC)}
+\item{tnh}{"hot" tmin (degC)}
 }
 \description{
 Compute the selected FAO Agronomic index

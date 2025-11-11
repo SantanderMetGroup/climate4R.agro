@@ -68,13 +68,13 @@ but not necessarily all, criteria (e.g., "at least 2 of 3 stressors
 below threshold"). Requires argument \code{k}.}
 }}
 
-\item{k}{Integer ≥ 1, required only when \code{combiner = "k_of_n"}. It defines
+\item{k}{Integer >= 1, required only when \code{combiner = "k_of_n"}. It defines
 the minimum number of variables that must pass their individual conditions
 for a day to be marked as valid (\code{cond = TRUE}). For example, with
 three variables and \code{k = 2}, a day is valid if at least two of them are
 within their specified ranges.}
 
-\item{min_duration}{Integer ≥ 1. Minimum number of \strong{consecutive days}
+\item{min_duration}{Integer >= 1. Minimum number of \strong{consecutive days}
 that must satisfy the combined daily condition (\code{cond = TRUE}) before
 the run starts contributing to the cumulative count.
 \itemize{
@@ -103,13 +103,13 @@ days.}
 \value{
 Tibble with daily rows and columns:
 \itemize{
-\item \code{id} — station or spatial cell identifier.
-\item \code{day_idx} — daily index within the full time series.
-\item \code{season_id}, \code{season_label} — season grouping identifiers.
-\item \code{cond} — logical vector of days meeting the combined condition.
-\item \code{valid} — logical vector indicating if the day is part of a run
+\item \code{id} - station or spatial cell identifier.
+\item \code{day_idx} - daily index within the full time series.
+\item \code{season_id}, \code{season_label} - season grouping identifiers.
+\item \code{cond} - logical vector of days meeting the combined condition.
+\item \code{valid} - logical vector indicating if the day is part of a run
 that reached the required \code{min_duration}.
-\item \code{cum_days} — cumulative number of valid days since season start,
+\item \code{cum_days} - cumulative number of valid days since season start,
 corrected for incomplete runs.
 }
 }
@@ -133,6 +133,14 @@ remaining unbiased for incomplete ongoing runs (e.g., when the current
 season is still in progress).
 }
 \examples{
+set.seed(123)
+df <- tibble::tibble(
+  id = rep(c("A", "B"), each = 10),
+  date = as.Date("2000-01-01") + rep(0:9, times = 2),
+  temp = runif(20, 5, 35),
+  humidity = runif(20, 20, 90)
+)
+
 bounds <- tibble::tibble(
   var = c("temp", "humidity"),
   lower = c(10, 40),

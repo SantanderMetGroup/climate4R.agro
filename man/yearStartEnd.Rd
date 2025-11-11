@@ -11,9 +11,9 @@ yearStartEnd(dates, year, year.start = NULL, year.end = NULL)
 
 \item{year}{Year of interest (e.g. 1995)}
 
-\item{year.start}{User-defined start of the year \link{in "YYYY-MM-DD" format}}
+\item{year.start}{User-defined start of the year in \code{"YYYY-MM-DD"} format}
 
-\item{year.end}{User-defined end of the year \link{in "YYYY-MM-DD" format}}
+\item{year.end}{User-defined end of the year in \code{"YYYY-MM-DD"} format}
 }
 \value{
 Indices marking the start and the end of a given year (or a user-defined portion of the year). The search is done within the "dates" matrix

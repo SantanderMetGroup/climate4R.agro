@@ -27,9 +27,9 @@ nd_thre(
 
 \item{year}{Vector with years of interest (e.g. 1990:1995)}
 
-\item{year.start}{Vector of dates \link{in "YYYY-MM-DD" format} defining the beginning of a portion of interest within each year (e.g., the agronomic season)}
+\item{year.start}{Vector of dates in \code{"YYYY-MM-DD"} format defining the beginning of a portion of interest within each year (e.g., the agronomic season)}
 
-\item{year.end}{Vector of dates \link{in "YYYY-MM-DD" format} defining the end of a portion of interest within each year (e.g., the agronomic season)}
+\item{year.end}{Vector of dates in \code{"YYYY-MM-DD"} format defining the end of a portion of interest within each year (e.g., the agronomic season)}
 
 \item{pnan}{Any year with a percentage of NA data above "pnan" will be ignored}
 
