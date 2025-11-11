@@ -109,17 +109,19 @@ results <- lapply(indices, function(idx) {
 cdi_result <- agroindexGrid(
   index.code = "CDI",
   tx = tx_grid,
-  tm = tmean_grid,
-  hurs = hurs_grid,
+  pr = pr_grid,
   index.arg.list = list(
+    season_start  = "01-01",
+    season_end    = "12-31",
     bounds = data.frame(
-      tx = c(25, 35),
-      tm = c(20, 30),
-      hurs = c(30, 70)
-    ),
-    combiner = "any",
-    min_duration = 5
-  )
+      var   = c("tx", "pr"),
+      lower = c(25, 0),
+      upper = c(35, 10)
+      ),
+      combiner = "any",
+      min_duration = 3
+      ),
+  parallel = TRUE
 )
 
 # Number of Days Exceeding Threshold
