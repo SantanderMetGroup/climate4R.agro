@@ -301,6 +301,41 @@ agroindexGrid <- function(index.code,
         }
         invisible(NULL)
     }
+    # Helper function to verify that required functions exist on workers
+    cluster_verify_functions <- function(cl, fun_names) {
+        if (is.null(cl) || !inherits(cl, "cluster")) return(invisible(NULL))
+        fun_names <- unique(fun_names)
+        fun_names <- fun_names[fun_names != ""]
+        if (length(fun_names) == 0) return(invisible(NULL))
+        var_name <- ".climate4R_required_functions"
+        fun_env <- new.env(parent = emptyenv())
+        assign(var_name, fun_names, envir = fun_env)
+        parallel::clusterExport(cl, varlist = var_name, envir = fun_env)
+        results <- parallel::clusterEvalQ(cl, {
+            if (!exists(".climate4R_required_functions", envir = .GlobalEnv, inherits = FALSE)) {
+                stop("Function list not found on worker")
+            }
+            fn_list <- get(".climate4R_required_functions", envir = .GlobalEnv, inherits = FALSE)
+            ok <- sapply(fn_list, function(fn) exists(fn, mode = "function", inherits = TRUE))
+            rm(list = ".climate4R_required_functions", envir = .GlobalEnv)
+            ok
+        })
+        missing <- character(0)
+        if (is.list(results)) {
+            missing <- unique(unlist(lapply(results, function(vals) {
+                if (is.null(vals)) return(fun_names)
+                fun_names[!vals]
+            })))
+        } else if (is.atomic(results)) {
+            missing <- fun_names[!as.logical(results)]
+        }
+        if (length(missing) > 0) {
+            stop("Cluster workers are missing required function(s): ",
+                 paste(missing, collapse = ", "),
+                 ". Ensure the necessary packages are loaded on each worker.")
+        }
+        invisible(NULL)
+    }
     # Helper function to combine member results
     combine_member_results <- function(member_list, station_flag, metadata_row, idx_code) {
         if (length(member_list) == 0) {
@@ -498,29 +533,22 @@ agroindexGrid <- function(index.code,
     
     # Pre-load agroindexFAO function if needed (for FAO agronomic indices)
     if (metadata$indexfun == "agroindexFAO") {
-        if (!exists("agroindexFAO", mode = "function")) {
-            stop("Function 'agroindexFAO' not available. Please load climate4R.agro before calling agroindexGrid().")
-        }
-        if (!exists("computeET0", mode = "function")) {
-            stop("Function 'computeET0' not available. Please load climate4R.agro before calling agroindexGrid().")
-        }
-        if (!exists("binSpell", mode = "function")) {
-            stop("Function 'binSpell' not available. Please load climate4R.agro before calling agroindexGrid().")
-        }
-        fao_fun_loaded <- get("agroindexFAO", mode = "function")
-        computeET0_loaded <- get("computeET0", mode = "function")
-        binSpell_loaded <- get("binSpell", mode = "function")
+        fao_fun_loaded <- agroindexFAO
+        computeET0_loaded <- tryCatch({
+            get("computeET0", mode = "function", inherits = TRUE)
+        }, error = function(...) {
+            if ("climate4R.agro" %in% loadedNamespaces()) {
+                getFromNamespace("computeET0", ns = "climate4R.agro")
+            } else {
+                stop("computeET0 function not found. Please ensure 'climate4R.agro' is installed and loaded.")
+            }
+        })
+        binSpell_loaded <- binSpell
     }
     
     if (index.code %in% c("CDI", "CEI")) {
-        if (!exists(index.code, mode = "function")) {
-            stop("Function '", index.code, "' not available. Please load climate4R.agro before calling agroindexGrid().")
-        }
-        if (!exists("build_seasons_map", mode = "function")) {
-            stop("Function 'build_seasons_map' not available. Please load climate4R.agro before calling agroindexGrid().")
-        }
-        cdi_cei_fun_loaded <- get(index.code, mode = "function")
-        build_seasons_map_loaded <- get("build_seasons_map", mode = "function")
+        cdi_cei_fun_loaded <- if (index.code == "CDI") CDI else CEI
+        build_seasons_map_loaded <- build_seasons_map
     }
     allow_member_parallel <- TRUE
     if (n.mem > 1) {
@@ -552,37 +580,18 @@ agroindexGrid <- function(index.code,
 
             if (!is.null(parallel.pars$cl)) {
                 cluster_load_packages(parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
-                export_fun_to_cluster <- function(name) {
-                    if (exists(name, mode = "function", inherits = TRUE)) {
-                        cluster_assign_function(parallel.pars$cl, name, get(name, mode = "function", inherits = TRUE))
-                    }
-                }
                 if (metadata$indexfun == "agroindexFAO") {
-                    if (!is.null(fao_fun_loaded)) {
-                        cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
-                    } else {
-                        export_fun_to_cluster("agroindexFAO")
-                    }
-                    if (!is.null(computeET0_loaded)) {
-                        cluster_assign_function(parallel.pars$cl, "computeET0", computeET0_loaded)
-                    } else {
-                        export_fun_to_cluster("computeET0")
-                    }
-                    if (!is.null(binSpell_loaded)) {
-                        cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
-                    } else {
-                        export_fun_to_cluster("binSpell")
-                    }
+                    cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
+                    cluster_assign_function(parallel.pars$cl, "computeET0", computeET0_loaded)
+                    cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
+                    cluster_verify_functions(parallel.pars$cl,
+                                             c("agroindexFAO", "computeET0", "binSpell"))
                 }
                 if (index.code %in% c("CDI", "CEI")) {
-                    export_fun_to_cluster(index.code)
-                    export_fun_to_cluster("build_seasons_map")
-                }
-                if (!is.null(cdi_cei_fun_loaded) && is.function(cdi_cei_fun_loaded)) {
                     cluster_assign_function(parallel.pars$cl, index.code, cdi_cei_fun_loaded)
-                }
-                if (!is.null(build_seasons_map_loaded) && is.function(build_seasons_map_loaded)) {
                     cluster_assign_function(parallel.pars$cl, "build_seasons_map", build_seasons_map_loaded)
+                    cluster_verify_functions(parallel.pars$cl,
+                                             c(index.code, "build_seasons_map"))
                 }
             }
         }
@@ -953,27 +962,11 @@ agroindexGrid <- function(index.code,
                     }
                     if (!is.null(fao_parallel.pars$cl)) {
                         cluster_load_packages(fao_parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
-                        export_fun_to_cluster <- function(name) {
-                            if (exists(name, mode = "function", inherits = TRUE)) {
-                                cluster_assign_function(fao_parallel.pars$cl, name,
-                                                        get(name, mode = "function", inherits = TRUE))
-                            }
-                        }
-                        if (!is.null(fao_fun_loaded) && is.function(fao_fun_loaded)) {
-                            cluster_assign_function(fao_parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
-                        } else {
-                            export_fun_to_cluster("agroindexFAO")
-                        }
-                        if (!is.null(computeET0_loaded) && is.function(computeET0_loaded)) {
-                            cluster_assign_function(fao_parallel.pars$cl, "computeET0", computeET0_loaded)
-                        } else {
-                            export_fun_to_cluster("computeET0")
-                        }
-                        if (!is.null(binSpell_loaded) && is.function(binSpell_loaded)) {
-                            cluster_assign_function(fao_parallel.pars$cl, "binSpell", binSpell_loaded)
-                        } else {
-                            export_fun_to_cluster("binSpell")
-                        }
+                        cluster_assign_function(fao_parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
+                        cluster_assign_function(fao_parallel.pars$cl, "computeET0", computeET0_loaded)
+                        cluster_assign_function(fao_parallel.pars$cl, "binSpell", binSpell_loaded)
+                        cluster_verify_functions(fao_parallel.pars$cl,
+                                                 c("agroindexFAO", "computeET0", "binSpell"))
                     }
                 } else {
                     if (n.mem == 1) {
@@ -1021,11 +1014,7 @@ agroindexGrid <- function(index.code,
                         
                         # Call FAO function with point data and index arguments
                         tryCatch({
-                            fun_obj <- fao_fun_loaded
-                            if (is.null(fun_obj) || !is.function(fun_obj)) {
-                                stop("Function '", metadata$indexfun, "' not available. Please load climate4R.agro before calling agroindexGrid().")
-                            }
-                            result <- do.call(fun_obj, c(point_data, index.arg.list))
+                            result <- do.call(fao_fun_loaded, c(point_data, index.arg.list))
                             # GSL returns a list, extract the GSL component
                             if (index.code == "gsl" && is.list(result)) {
                                 result <- result$GSL
@@ -1145,29 +1134,16 @@ agroindexGrid <- function(index.code,
             
             # Report error summary for FAO indices
             if (error_info$count > 0) {
-                tryCatch({
-                    if (n.mem == 1) {
-                        message("[", Sys.time(), "] FAO indices: ", error_info$count, " out of ", 
-                               total_points, " grid points encountered errors")
-                    } else {
-                        # For multi-member, report first error to help debug
-                        # Only report if this is NOT a connection error (to avoid nested connection issues)
-                        if (!is.null(error_info$first_error)) {
-                            # Check if first error is memory-related
-                            if (grepl("cannot allocate|no se puede ubicar", error_info$first_error, ignore.case = TRUE)) {
-                                message("[", Sys.time(), "] FAO indices (member ", x, "): MEMORY ERROR - ", 
-                                       error_info$count, " out of ", total_points, " grid points failed")
-                                message("  Error: ", error_info$first_error)
-                            } else {
-                                message("[", Sys.time(), "] FAO indices (member ", x, "): ", error_info$count, 
-                                       " out of ", total_points, " grid points encountered errors")
-                                message("  First error: ", error_info$first_error)
-                            }
-                        }
-                    }
-                }, error = function(e) {
-                    # Ignore connection write errors
-                })
+                first_err <- error_info$first_error
+                err_msg <- paste0("FAO indices (member ", x, "): ", error_info$count, " grid point error(s).",
+                                  if (!is.null(first_err)) paste0(" First error: ", first_err) else "")
+                if (n.mem > 1) {
+                    stop(err_msg)
+                } else {
+                    tryCatch({
+                        message("[", Sys.time(), "] ", err_msg)
+                    }, error = function(e) {})
+                }
             }
             
             # Check if ALL results are NA (indicates a systematic problem)
@@ -1401,9 +1377,6 @@ agroindexGrid <- function(index.code,
                         cdi_cei_fun <- cdi_cei_fun_loaded
                         
                         # Call CDI/CEI function - only suppress output for multi-member to avoid connection errors
-                        if (is.null(cdi_cei_fun) || !is.function(cdi_cei_fun)) {
-                            stop("Function '", metadata$indexfun, "' not available. Please load climate4R.agro before calling agroindexGrid().")
-                        }
                         if (n.mem > 1) {
                             cdi_cei_result <- suppressMessages(suppressWarnings({
                                 do.call(cdi_cei_fun, args_list)
@@ -1521,12 +1494,10 @@ agroindexGrid <- function(index.code,
                         # Call the index function
                         # For tier1 indices, use agroindexFAO_tier1 wrapper which handles function lookup
                         if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
-                            tier1_wrapper <- get("agroindexFAO_tier1", mode = "function")
                             args_with_code <- c(list(index.code = index.code), args_list)
-                            index_result <- do.call(tier1_wrapper, args_with_code)
+                            index_result <- do.call("agroindexFAO_tier1", args_with_code)
                         } else {
-                            index_fun <- get(metadata$indexfun, mode = "function")
-                            index_result <- do.call(index_fun, args_list)
+                            index_result <- do.call(metadata$indexfun, args_list)
                         }
                         
                         # GSL returns a list, extract the GSL component
@@ -1560,13 +1531,17 @@ agroindexGrid <- function(index.code,
         })
         
         # Report error summary for non-FAO indices
-        if (error_count > 0 && n.mem == 1) {
-            tryCatch({
-                message("[", Sys.time(), "] Non-FAO indices: ", error_count, " out of ", 
-                        length(lats) * length(lons), " grid points encountered errors")
-            }, error = function(e) {
-                # Ignore connection write errors
-            })
+        if (error_count > 0) {
+            total_points <- length(lats) * length(lons)
+            err_msg <- paste0("Non-FAO indices: ", error_count, " out of ", total_points, " grid point(s) failed.",
+                              if (error_display_count > 0) " Check earlier warnings for details." else "")
+            if (n.mem > 1) {
+                stop(err_msg)
+            } else {
+                tryCatch({
+                    message("[", Sys.time(), "] ", err_msg)
+                }, error = function(e) {})
+            }
         }
         
         # Reconstruct data array with proper dimensions
@@ -1679,7 +1654,6 @@ agroindexGrid <- function(index.code,
             
             # Check if this is a connection/SIGPIPE error
             is_connection_error <- (
-                grepl("conexi(o|\\u00F3)n", error_msg, ignore.case = TRUE, perl = TRUE) ||
                 grepl("connection", error_msg, ignore.case = TRUE) ||
                 grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
                 grepl("broken pipe", error_msg, ignore.case = TRUE) ||
@@ -1787,7 +1761,6 @@ agroindexGrid <- function(index.code,
         
         # Check if this is a connection/SIGPIPE error
         is_connection_error <- (
-            grepl("conexi(o|\\u00F3)n", error_msg, ignore.case = TRUE, perl = TRUE) ||
             grepl("connection", error_msg, ignore.case = TRUE) ||
             grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
             grepl("broken pipe", error_msg, ignore.case = TRUE) ||
