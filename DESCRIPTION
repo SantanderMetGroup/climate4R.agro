@@ -3,12 +3,14 @@ Title: Agroclimatic Index calculation for climate4R data
 Version: 0.1.0
 Date: 2025-10-31
 Description: A comprehensive R package for calculating agroclimatic indices from climate data, built on the climate4R framework.
-Depends: R (>= 3.6.3)         
+Depends: R (>= 3.6.0)
 Imports: transformeR (>= 1.4.4),
          magrittr,
          parallel,
          dplyr,
-         abind
+         abind,
+         tibble,
+         rlang
 Suggests: loadeR,
           visualizeR
 Authors@R: as.person(c(
