@@ -9,8 +9,8 @@ if (getRversion() >= "2.15.1") {
     ".data", "bonus", "cond", "cum_days", "cum_exc", "cum_excess",
     "day_idx", "end", "excess", "grp", "n_true", "n_vars", "prev_cum",
     "prev_k", "run_len", "season_id", "season_label", "start", "valid",
-    "value"
+    "value", "x",
+    # climate4R.agro grid variable placeholders used via get()/assign()
+    "tn", "tx", "pr", "tm", "hurs", "sfcwind", "ssrd"
   ))
 }
-
-

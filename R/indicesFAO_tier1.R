@@ -74,7 +74,7 @@ binSpell <- function(data) {
 
 yearStartEnd <- function(dates, year, year.start = NULL, year.end = NULL) {
   
-  if (!is.null(year.start) & !is.null(year.end)) {
+  if (!is.null(year.start) && !is.null(year.end)) {
     ind.start = which(dates[, 1] == as.numeric(substr(year.start, 1, 4)) &   # start of the year (as defined by the user)
                         dates[, 2] == as.numeric(substr(year.start, 6, 7)) & 
                         dates[, 3] == as.numeric(substr(year.start, 9, 10)))
@@ -129,7 +129,7 @@ gsl <- function(tm, dates, lat, pnan = 25) {
       year.end = which(dates[, 1] == iyear + 1 & dates[, 2] == 6 & dates[, 3] == 30)
     }
     
-    if (length(year.init) > 0 & length(year.end) > 0) {  # checking for complete year
+    if (length(year.init) > 0 && length(year.end) > 0) {  # checking for complete year
       ind.year = year.init:year.end;  nday = length(ind.year)
       dates.year = dates[ind.year, ]
       
@@ -148,7 +148,7 @@ gsl <- function(tm, dates, lat, pnan = 25) {
         ## first 6-day spell with tm>5degC (within the first half of the year)
         binwarm = binSpell(tm.year > 5)
         indblockwarm = which(binwarm$val & (binwarm$len >= 6))[1]
-        if ((length(indblockwarm) != 0) & (!is.na(indblockwarm))) {
+        if ((length(indblockwarm) != 0) && (!is.na(indblockwarm))) {
           aux.ind.dinit = sum(binwarm$len[1:(indblockwarm-1)]) + 6  # end of first 6-day spell with tm>5degC
           if (aux.ind.dinit < ind.mid.year) {
             dinit = aux.ind.dinit
@@ -165,13 +165,13 @@ gsl <- function(tm, dates, lat, pnan = 25) {
         if (length(indblockcold) == 0) {
           indblockcold = NA
         }
-        if ((length(indblockcold) != 0) & (!is.na(indblockcold))) {
+        if ((length(indblockcold) != 0) && (!is.na(indblockcold))) {
           aux.ind.dend = c()
           for (j in indblockcold){
             aux.ind.dend[indblockcold == j] = sum(binwarm$len[1:(j-1)]) + 6  # end of 6-day spells with tm<5degC
           }
           ind.dend = which(aux.ind.dend > ind.mid.year)[1]
-          if (length(ind.dend) != 0 & (!is.na(ind.dend))) {
+          if (length(ind.dend) != 0 && (!is.na(ind.dend))) {
             dend = aux.ind.dend[ind.dend]  
           } else {
             dend = NA
@@ -222,21 +222,21 @@ avg <- function(tm, dates, year = NULL, year.start = NULL, year.end = NULL, pnan
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         tm.year = tm[ind.year$start:ind.year$end]
         if (sum(is.na(tm.year)) < 0.01*pnan*length(tm.year)) {  # asking for a minimum of pnan (%) of non-missing days 
-          index[year == iyear] = mean(tm.year, na.rm = T)  
+          index[year == iyear] = mean(tm.year, na.rm = TRUE)  
         }
       }
     }
@@ -275,24 +275,24 @@ nd_thre <- function(any, dates, threshold, direction = "geq", year = NULL, year.
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         data.year = data[ind.year$start:ind.year$end]
         if (sum(is.na(data.year)) < 0.01*pnan*length(data.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           if (direction == "geq") {
-            index[year == iyear] = sum(data.year >= threshold, na.rm = T)
+            index[year == iyear] = sum(data.year >= threshold, na.rm = TRUE)
           } else if (direction == "leq") {
-            index[year == iyear] = sum(data.year <= threshold, na.rm = T)
+            index[year == iyear] = sum(data.year <= threshold, na.rm = TRUE)
           }
         }
       }
@@ -336,23 +336,23 @@ nhw <- function(tx, dates, threshold, duration, year = NULL, year.start = NULL, 
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         tx.year = tx[ind.year$start:ind.year$end]
         if (sum(is.na(tx.year)) < 0.01*pnan*length(tx.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
           bin = binSpell(tx.year > threshold)
-          index[year == iyear] = sum(bin$len[which(bin$val)] >= duration, na.rm = T)
+          index[year == iyear] = sum(bin$len[which(bin$val)] >= duration, na.rm = TRUE)
         }
       }
     }
@@ -389,23 +389,23 @@ dr <- function(tx, tn, dates, year = NULL, year.start = NULL, year.end = NULL, p
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         tx.year = tx[ind.year$start:ind.year$end]
         tn.year = tn[ind.year$start:ind.year$end]
-        if (sum(is.na(tx.year)) < 0.01*pnan*length(tx.year) & sum(is.na(tn.year)) < 0.01*pnan*length(tn.year)) {  # asking for a minimum of pnan (%) of non-missing days 
+        if (sum(is.na(tx.year)) < 0.01*pnan*length(tx.year) && sum(is.na(tn.year)) < 0.01*pnan*length(tn.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
-          index[year == iyear] = mean(tx.year - tn.year, na.rm = T)
+          index[year == iyear] = mean(tx.year - tn.year, na.rm = TRUE)
         }
       }
     }
@@ -442,22 +442,22 @@ prcptot <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
-          index[year == iyear] = sum(pr.year[pr.year >= wet.threshold], na.rm = T)
+          index[year == iyear] = sum(pr.year[pr.year >= wet.threshold], na.rm = TRUE)
         }
       }
     }
@@ -494,22 +494,22 @@ nrd <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL, ye
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
-          index[year == iyear] = sum(pr.year >= wet.threshold, na.rm = T)
+          index[year == iyear] = sum(pr.year >= wet.threshold, na.rm = TRUE)
         }
       }
     }
@@ -547,26 +547,26 @@ lds <- function(pr, dates, length.spell = "mean", wet.threshold = 1, year = NULL
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
           bin = binSpell(pr.year < wet.threshold)
           if (length.spell == "mean") {
-            index[year == iyear] = mean(bin$len[which(bin$val)], na.rm = T)
+            index[year == iyear] = mean(bin$len[which(bin$val)], na.rm = TRUE)
           } else if (length.spell == "maximum") {
-            index[year == iyear] = max(bin$len[which(bin$val)], na.rm = T)
+            index[year == iyear] = max(bin$len[which(bin$val)], na.rm = TRUE)
           }
         }
       }
@@ -610,21 +610,21 @@ sdii <- function(pr, dates, wet.threshold = 1, year = NULL, year.start = NULL, y
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days
-          index[year == iyear] = mean(pr.year[pr.year >= wet.threshold], na.rm = T)
+          index[year == iyear] = mean(pr.year[pr.year >= wet.threshold], na.rm = TRUE)
         }
       }
     }
@@ -662,21 +662,21 @@ prcptot_thre <- function(pr, dates, threshold = 50, year = NULL, year.start = NU
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days
-          index[year == iyear] = sum(pr.year[pr.year >= threshold], na.rm = T)
+          index[year == iyear] = sum(pr.year[pr.year >= threshold], na.rm = TRUE)
         }
       }
     }
@@ -716,26 +716,26 @@ ns <- function(pr, dates, wet.threshold, duration, type.spell = "dry", year = NU
   }
   
   # initializing output
-  index = rep(NA, 1, length(year))  
+  index <- rep(NA_real_, length(year))  
   
   for (iyear in year) {
     
-    if (!is.null(year.start) & !is.null(year.end)) {
+    if (!is.null(year.start) && !is.null(year.end)) {
       ind.year = yearStartEnd(dates, iyear, year.start = year.start[year == iyear], year.end = year.end[year == iyear])  # bounding dates defining the portion of year of interest
     } else {
       ind.year = yearStartEnd(dates, iyear, year.start = NULL, year.end = NULL)  # bounding dates defining the year of interest
     }
     
-    if (length(ind.year$start) != 0 & length(ind.year$end) != 0) {
-      if (!is.na(ind.year$start) & !is.na(ind.year$end)) {
+    if (length(ind.year$start) != 0 && length(ind.year$end) != 0) {
+      if (!is.na(ind.year$start) && !is.na(ind.year$end)) {
         pr.year = pr[ind.year$start:ind.year$end]
         if (sum(is.na(pr.year)) < 0.01*pnan*length(pr.year)) {  # asking for a minimum of pnan (%) of non-missing days 
           
           bin = binSpell(pr.year >= wet.threshold)
           if (type.spell == "wet") {
-            index[year == iyear] = sum(bin$len[which(bin$val)] >= duration, na.rm = T)
+            index[year == iyear] = sum(bin$len[which(bin$val)] >= duration, na.rm = TRUE)
           } else if (type.spell == "dry") {
-            index[year == iyear] = sum(bin$len[which(!bin$val)] >= duration, na.rm = T) 
+            index[year == iyear] = sum(bin$len[which(!bin$val)] >= duration, na.rm = TRUE) 
           }
         }
       }

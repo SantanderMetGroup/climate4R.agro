@@ -1,6 +1,6 @@
 #     agroindexGrid.R Agroclimatic Index in Climate4R
 #
-#     Copyright (C) 2018 (original) and 2025 (modifications) 
+#     Copyright (C) 2018 (original) and 2025 (modifications)
 #     Santander Meteorology Group (http://www.meteo.unican.es)
 #
 #     This program is free software: you can redistribute it and/or modify
@@ -20,94 +20,166 @@
 #' @template templateParallelParams
 #' @import transformeR
 #' @importFrom parallel stopCluster
-#' @importFrom magrittr %>% %<>% extract2
-#' @importFrom utils head
+#' @importFrom utils head capture.output str globalVariables
 #' @importFrom abind abind
-#' @importFrom dplyr group_by summarize pull
-#' @details \code{\link{agroindexShow}} will display on screen a full list of available agroclimatic indices and their codes.
-#' Index groups include: (i) FAO Tier1 indices such as gsl, avg, nd_thre, nhw, dr,
-#' prcptot, nrd, lds, sdii, prcptot_thre, and ns; (ii) FAO agronomic season indices
-#' derived from the water balance (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn,
+#' @details \code{\link{agroindexShow}} will display on screen a full list of
+#' available agroclimatic indices and their codes. Index groups include:
+#' (i) FAO Tier1 indices such as gsl, avg, nd_thre, nhw, dr, prcptot, nrd,
+#' lds, sdii, prcptot_thre, and ns; (ii) FAO agronomic season indices derived
+#' from the water balance (dt_st_rnagsn, nm_flst_rnagsn, dt_fnst_rnagsn,
 #' dt_ed_rnagsn, dl_agsn, dc_agsn, rn_agsn, avrn_agsn, dc_rnlg_agsn, tm_agsn,
-#' dc_txh_agsn, dc_tnh_agsn); and (iii) stress indices CDI (Condition Duration Index)
-#' and CEI (Condition Excess Index). For index-specific arguments, refer to the help files of individual index functions.
+#' dc_txh_agsn, dc_tnh_agsn); and (iii) stress indices CDI (Condition Duration
+#' Index) and CEI (Condition Excess Index). For index-specific arguments, refer
+#' to the help files of individual index functions.
 #'
 #' @template templateParallel
 #'
-#' @examples \dontrun{
-#' require(transformeR)
-#' require(visualizeR)
-#' # Load temperature and precipitation data
-#' data("tasmax.grid")
-#' data("tasmin.grid")
-#' data("pr.grid")
-#' 
-#' ## Example 1: Growing Season Length (GSL)
-#' gsl.grid <- agroindexGrid(tm = tasmax.grid, 
-#'                           index.code = "gsl",
-#'                           time.resolution = "year",
-#'                           index.arg.list = list(lat = 40))
-#' 
-#' ## Example 2: Average temperature with custom season
-#' avg.grid <- agroindexGrid(tm = tasmax.grid,
-#'                           index.code = "avg",
-#'                           time.resolution = "year",
-#'                           index.arg.list = list(
-#'                             year.start = "2000-06-01",
-#'                             year.end = "2000-08-31"))
-#' 
-#' ## Example 3: Number of heat waves
-#' nhw.grid <- agroindexGrid(tx = tasmax.grid,
-#'                           index.code = "nhw",
-#'                           time.resolution = "year",
-#'                           index.arg.list = list(
-#'                             threshold = 35,
-#'                             duration = 3))
-#' 
-#' ## Example 4: CDI - Condition Duration Index (multi-variable stress)
-#' # Requires bounds specification for each variable
-#' cdi.grid <- agroindexGrid(tx = tasmax.grid,
-#'                           hurs = hurs.grid,
-#'                           index.code = "CDI",
-#'                           time.resolution = "year",
-#'                           index.arg.list = list(
-#'                             bounds = data.frame(
-#'                               var = c("tx", "hurs"),
-#'                               lower = c(30, 0),
-#'                               upper = c(Inf, 40)),
-#'                             combiner = "all",
-#'                             min_duration = 3))
+#' @examples
+#' \dontrun{
+#'   library(transformeR)
+#'   library(visualizeR)
+#'   # Load temperature and precipitation data
+#'   data("tasmax.grid")
+#'   data("tasmin.grid")
+#'   data("pr.grid")
+#'
+#'   ## Example 1: Growing Season Length (GSL)
+#'   gsl.grid <- agroindexGrid(
+#'     tm = tasmax.grid,
+#'     index.code = "gsl",
+#'     time.resolution = "year",
+#'     index.arg.list = list(lat = 40)
+#'   )
+#
+#'   ## Example 2: Average temperature with custom season
+#'   avg.grid <- agroindexGrid(
+#'     tm = tasmax.grid,
+#'     index.code = "avg",
+#'     time.resolution = "year",
+#'     index.arg.list = list(
+#'       year.start = "2000-06-01",
+#'       year.end = "2000-08-31"
+#'     )
+#'   )
+#'
+#'   ## Example 3: Number of heat waves
+#'   nhw.grid <- agroindexGrid(
+#'     tx = tasmax.grid,
+#'     index.code = "nhw",
+#'     time.resolution = "year",
+#'     index.arg.list = list(
+#'       threshold = 35,
+#'       duration = 3
+#'     )
+#'   )
+#'
+#'   ## Example 4: CDI - Condition Duration Index (multi-variable stress)
+#'   ## Requires bounds specification for each variable
+#'   cdi.grid <- agroindexGrid(
+#'     tx = tasmax.grid,
+#'     hurs = hurs.grid,
+#'     index.code = "CDI",
+#'     time.resolution = "year",
+#'     index.arg.list = list(
+#'       bounds = data.frame(
+#'         var = c("tx", "hurs"),
+#'         lower = c(30, 0),
+#'         upper = c(Inf, 40)
+#'       ),
+#'       combiner = "all",
+#'       min_duration = 3
+#'     )
+#'   )
 #' }
 #'
 #' @author Pablo Lavin Pellon is the author of agroindexGrid.R
+
+#' @name get_time_resolution
+#' @title Get time resolution of a grid
+#' @description Wrapper function for \code{\link[transformeR]{getTimeResolution}} 
+#' to extract the time resolution from a climate grid object.
+#' @param ... Arguments passed to \code{\link[transformeR]{getTimeResolution}}
+#' @return A character string indicating the time resolution (e.g., "DD" for daily, 
+#' "MM" for monthly, "YY" for yearly)
+#' @seealso \code{\link[transformeR]{getTimeResolution}}
 #' @export
+get_time_resolution <- function(...) {
+  transformeR::getTimeResolution(...)
+}
+
+#' @title Get shape/dimensions of a grid
+#' @description Wrapper function for \code{\link[transformeR]{getShape}} 
+#' to extract the dimensions (shape) of a climate grid object.
+#' @param ... Arguments passed to \code{\link[transformeR]{getShape}}
+#' @return A list or vector containing the dimensions of the grid (e.g., time, 
+#' lat, lon, member)
+#' @seealso \code{\link[transformeR]{getShape}}
+#' @export
+get_shape <- function(...) {
+  transformeR::getShape(...)
+}
+
+#' @title Redimension a grid
+#' @description Wrapper function for \code{\link[transformeR]{redim}} 
+#' to reshape or redimension a climate grid object by adding or removing dimensions.
+#' @param ... Arguments passed to \code{\link[transformeR]{redim}}
+#' @return A redimensioned grid object
+#' @seealso \code{\link[transformeR]{redim}}
+#' @export
+redim_tr <- function(...) {
+  transformeR::redim(...)
+}
+
+subset_grid <- transformeR::subsetGrid 
+subset_dimension <- transformeR::subsetDimension 
+get_grid <- transformeR::getGrid 
+interp_grid <- transformeR::interpGrid 
+typeof_grid <- transformeR::typeofGrid 
+get_ref_dates <- transformeR::getRefDates 
+is_regular <- transformeR::isRegular 
+intersect_grid <- transformeR::intersectGrid 
+parallel_check <- transformeR::parallelCheck 
+select_par_pply_fun <- transformeR::selectPar.pplyFun 
+
+# Initialize symbols used via NSE to avoid R CMD check notes
+tn <- tx <- pr <- tm <- hurs <- sfcwind <- ssrd <- NULL
+
+if (getRversion() >= "2.15.1") {
+  utils::globalVariables(c(
+    "season_id", "cum_days", "cum_excess", "value", "tx"
+  ))
+}
 
 agroindexGrid <- function(index.code,
-                        tn = NULL,
-                        tx = NULL,
-                        pr = NULL,
-                        tm = NULL,
-                        hurs = NULL,
-                        sfcwind = NULL,
-                        ssrd = NULL,
-                        index.arg.list = list(),
-                        cal = "365_day",
-                        time.resolution = "year",
-                        parallel = FALSE,
-                        max.ncores = 16,
-                        ncores = NULL) {
-                            
+                          tn = NULL,
+                          tx = NULL,
+                          pr = NULL,
+                          tm = NULL,
+                          hurs = NULL,
+                          sfcwind = NULL,
+                          ssrd = NULL, 
+                          index.arg.list = list(), 
+                          cal = "365_day", 
+                          time.resolution = "year", 
+                          parallel = FALSE,
+                          max.ncores = 16,
+                          ncores = NULL,
+                          verbose = FALSE,
+                          ._retry = FALSE) {
+    original_call <- match.call()
+
     # Validate time resolution for all input grids
     var_names <- c("tn", "tx", "pr", "tm", "hurs", "sfcwind", "ssrd")
     for (var_name in var_names) {
         var_obj <- get(var_name)
-        if (!is.null(var_obj) && getTimeResolution(var_obj) != "DD") {
+        if (!is.null(var_obj) && get_time_resolution(var_obj) != "DD") {
             stop("Daily data is required as input", call. = FALSE)
         }
     }
     
     # Validate time resolution
     time.resolution <- match.arg(time.resolution, choices = c("month", "year", "climatology"))
+    original_call$time.resolution <- time.resolution
     
     index.code <- match.arg(index.code,
                             choices = c("gsl", "avg", "nd_thre", "nhw", "dr", 
@@ -116,10 +188,27 @@ agroindexGrid <- function(index.code,
                                         "dt_ed_rnagsn", "dl_agsn", "dc_agsn", "rn_agsn", 
                                         "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", 
                                         "dc_txh_agsn", "dc_tnh_agsn", "CDI", "CEI"))
+    original_call$index.code <- index.code
+    original_call$verbose <- verbose
     
 
     # Constants
     MAX_ERROR_DISPLAY <- 10  # Maximum number of errors to display per member
+    
+    # Helper to normalise date metadata (drop names, ensure Date class)
+    normalize_grid_dates <- function(grid_obj) {
+        if (is.null(grid_obj) || is.null(grid_obj$Dates)) return(grid_obj)
+        for (slot in c("start", "end")) {
+            dates_vec <- grid_obj$Dates[[slot]]
+            if (!is.null(dates_vec)) {
+                grid_obj$Dates[[slot]] <- as.Date(dates_vec)
+                if (!is.null(names(grid_obj$Dates[[slot]]))) {
+                    names(grid_obj$Dates[[slot]]) <- NULL
+                }
+            }
+        }
+        grid_obj
+    }
     
     # Helper function to create grid list (used multiple times)
     create_grid_list <- function() {
@@ -127,7 +216,7 @@ agroindexGrid <- function(index.code,
         for (var_name in var_names) {
             var_obj <- get(var_name)
             if (!is.null(var_obj)) {
-                grid_list[[var_name]] <- var_obj
+                grid_list[[var_name]] <- normalize_grid_dates(var_obj)
             }
         }
         return(grid_list)
@@ -136,13 +225,13 @@ agroindexGrid <- function(index.code,
     ensure_member_dimension <- function(grid_obj) {
         if (is.null(grid_obj)) return(NULL)
         member_size <- tryCatch({
-            getShape(grid_obj, "member")
+            get_shape(grid_obj, "member")
         }, error = function(...) NA_real_)
         if (!is.na(member_size) && member_size > 0) {
-            return(grid_obj)
+            return(normalize_grid_dates(grid_obj))
         }
         tryCatch({
-            redim(grid_obj, member = TRUE, var = FALSE)
+            redim_tr(grid_obj, member = TRUE, var = FALSE)
         }, error = function(e) {
             msg <- conditionMessage(e)
             mem_error <- grepl("cannot allocate", msg, ignore.case = TRUE) ||
@@ -170,7 +259,7 @@ agroindexGrid <- function(index.code,
             } else {
                 grid_obj[["Members"]] <- list("member" = "member_1")
             }
-            grid_obj
+            normalize_grid_dates(grid_obj)
         })
     }
     
@@ -187,11 +276,12 @@ agroindexGrid <- function(index.code,
     extract_member_grid <- function(grid, member_idx, n_mem) {
         if (is.null(grid)) return(NULL)
         if (n_mem > 1) {
-            result <- subsetGrid(grid, members = member_idx, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+            result <- redim_tr(subset_grid(grid, members = member_idx, drop = TRUE),
+                               loc = FALSE, member = FALSE)
         } else {
-            result <- grid %>% redim(loc = FALSE, member = FALSE)
+            result <- redim_tr(grid, loc = FALSE, member = FALSE)
         }
-        
+
         # Ensure member dimension is actually removed from Data array
         # Sometimes redim doesn't fully remove the dimension if it's size 1
         if (!is.null(result) && !is.null(result[["Data"]])) {
@@ -223,7 +313,21 @@ agroindexGrid <- function(index.code,
                 }
             }
         }
-        
+        result <- normalize_grid_dates(result)
+        if (isTRUE(verbose)) {
+            res_class <- if (is.null(result)) "NULL" else paste(class(result), collapse = "/")
+            message("[", Sys.time(), "] Member ", member_idx, ": finished with result class ", res_class)
+            if (is.null(result)) {
+                message("[", Sys.time(), "] Member ", member_idx, ": result is NULL (check member_errors).")
+                err_attr <- attr(result, ".agroindex_error", exact = TRUE)
+                if (is.null(err_attr)) {
+                    err_attr <- attr(refGrid, ".agroindex_error", exact = TRUE)
+                }
+                if (!is.null(err_attr)) {
+                    message("[", Sys.time(), "] Member ", member_idx, ": error detail -> ", err_attr$message)
+                }
+            }
+        }
         return(result)
     }
     
@@ -235,7 +339,7 @@ agroindexGrid <- function(index.code,
     }
     
     # Helper function to get grid variables as a list (used in error handlers)
-    get_grid_vars_list <- function() {
+    get_grid_vars_list <- function(tx, tn, pr, tm, hurs, sfcwind, ssrd) {
         list(tx = tx, tn = tn, pr = pr, tm = tm, hurs = hurs,
              sfcwind = sfcwind, ssrd = ssrd)
     }
@@ -249,8 +353,9 @@ agroindexGrid <- function(index.code,
         NULL
     }
     # Helper function to get member template grid
-    get_member_template_grid <- function(member_idx, n_mem) {
-        grid_vars <- get_grid_vars_list()
+    get_member_template_grid <- function(member_idx, n_mem,
+                                         tx, tn, pr, tm, hurs, sfcwind, ssrd) {
+        grid_vars <- get_grid_vars_list(tx, tn, pr, tm, hurs, sfcwind, ssrd)
         candidate <- first_non_null(grid_vars)
         if (is.null(candidate)) return(NULL)
         extract_member_grid(candidate, member_idx, n_mem)
@@ -347,7 +452,7 @@ agroindexGrid <- function(index.code,
         }
         combined <- if (length(valid_members) == 1) {
             tryCatch({
-                valid_members %>% extract2(1) %>% redim(drop = TRUE)
+                redim_tr(valid_members[[1]], drop = TRUE)
             }, error = function(e) {
                 valid_members[[1]]
             })
@@ -380,7 +485,7 @@ agroindexGrid <- function(index.code,
                 attr(template[["Data"]], "dimensions") <- c("member", "time", "loc")
             }
             tryCatch({
-                template %<>% redim(member = TRUE, drop = FALSE)
+                template <- redim_tr(template, member = TRUE, drop = FALSE)
             }, error = function(e) {
                 # Ignore redim issues; template already has member dimension in Data
             })
@@ -395,7 +500,7 @@ agroindexGrid <- function(index.code,
         attr(combined[["Variable"]], "description") <- metadata_row$description
         attr(combined[["Variable"]], "units") <- metadata_row$units
         attr(combined[["Variable"]], "longname") <- metadata_row$longname
-        if (station_flag) combined %<>% redim(drop = FALSE, loc = TRUE, member = FALSE)
+        if (station_flag) combined <- redim_tr(combined, drop = FALSE, loc = TRUE, member = FALSE)
         invisible(combined)
     }
     aux <- read.master()
@@ -407,7 +512,7 @@ agroindexGrid <- function(index.code,
         stop("Master metadata is missing required columns: ",
              paste(missing_meta_cols, collapse = ", "))
     }
-    b <- metadata[, var_names, drop = FALSE] %>% unlist(use.names = FALSE) %>% as.numeric()
+    b <- as.numeric(unlist(metadata[, var_names, drop = FALSE], use.names = FALSE))
     
     # Skip variable requirement check for CDI/CEI (they accept any variables via df)
     if (!(index.code %in% c("CDI", "CEI"))) {
@@ -432,7 +537,7 @@ agroindexGrid <- function(index.code,
     
     if (length(grid.list) > 1) {
         # Check grid consistency
-        locs <- lapply(grid.list, isRegular)
+        locs <- lapply(grid.list, is_regular)
         if (!any(sum(unlist(locs)) != 0, sum(unlist(locs)) != length(grid.list))) {
             stop("Regular and Irregular grids can not be combined. See function interpGrid")
         }
@@ -441,7 +546,7 @@ agroindexGrid <- function(index.code,
         original_names <- names(grid.list)
         safe_temporal_intersection <- function(gl) {
             tryCatch({
-                intersectGrid(gl, type = "temporal", which.return = 1:length(gl))
+                intersect_grid(gl, type = "temporal", which.return = seq_along(gl))
             }, error = function(e) {
                 msg <- conditionMessage(e)
                 mem_error <- grepl("cannot allocate", msg, ignore.case = TRUE) ||
@@ -465,28 +570,31 @@ agroindexGrid <- function(index.code,
                     if (length(idx) == 0) {
                         stop("Fallback intersection found no matching dates for at least one grid.")
                     }
-                    subsetDimension(g, dimension = "time", indices = idx)
+                    normalize_grid_dates(
+                        subset_dimension(g, dimension = "time", indices = idx)
+                    )
                 })
                 fall_back
             })
         }
         grid.list <- safe_temporal_intersection(grid.list)
+        grid.list <- lapply(grid.list, normalize_grid_dates)
         namesgridlist <- original_names
         
         # Check spatial consistency and interpolate if needed
-        refgrid <- getGrid(grid.list[[1]])
+        refgrid <- get_grid(grid.list[[1]])
         indinterp <- which(isFALSE(unlist(lapply(2:length(grid.list), function(i) 
-            identical(refgrid, getGrid(grid.list[[i]]))))))
+            identical(refgrid, get_grid(grid.list[[i]]))))))
         
         if (length(indinterp) > 0) {
             grid.list.aux <- suppressMessages(lapply(grid.list[indinterp], function(i) 
-                interpGrid(i, getGrid(grid.list[[1]]))))
-            grid.list[indinterp] <- grid.list.aux
+                interp_grid(i, get_grid(grid.list[[1]]))))
+            grid.list[indinterp] <- lapply(grid.list.aux, normalize_grid_dates)
             grid.list.aux <- NULL
         }
         
         # Update variables with processed grids
-        for (i in 1:length(grid.list)) {
+        for (i in seq_along(grid.list)) {
             assign(namesgridlist[i], grid.list[[i]])
         }
     }
@@ -495,7 +603,7 @@ agroindexGrid <- function(index.code,
     for (var_name in var_names) {
         var_obj <- get(var_name)
         if (!is.null(var_obj)) {
-            if (!station) station <- typeofGrid(var_obj) == "station"
+            if (!station) station <- typeof_grid(var_obj) == "station"
             assign(var_name, ensure_member_dimension(var_obj))
         }
     }
@@ -506,7 +614,7 @@ agroindexGrid <- function(index.code,
     # Member dimension consistency check (similar to indexGrid.R)
     grid.list.check <- create_grid_list()
     if (length(grid.list.check) > 1) {
-        ns.mem <- lapply(grid.list.check, function(r) getShape(r)[["member"]])
+        ns.mem <- lapply(grid.list.check, function(r) get_shape(r)[["member"]])
         # Handle NA (no member dimension) as 1
         ns.mem <- lapply(ns.mem, function(x) if (is.na(x)) 1 else x)
         if (sum(unlist(ns.mem) - rep(ns.mem[[1]], length(ns.mem))) != 0) {
@@ -514,14 +622,15 @@ agroindexGrid <- function(index.code,
         }
         n.mem <- unique(unlist(ns.mem))
     } else {
-        n.mem <- getShape(refGrid, "member")
+        n.mem <- get_shape(refGrid, "member")
         if (is.na(n.mem)) n.mem <- 1  # Handle grids without member dimension
     }
     # Get reference dates (as Date, FAO/CDI/CEI)
-    refDates <- getRefDates(refGrid)
+    refDates <- get_ref_dates(refGrid)
     ref_dates_date <- as.Date(refDates)
     ref_years <- unique(format(ref_dates_date, "%Y"))
     message("[", Sys.time(), "] Calculating ", index.code, " ...")
+    member_error_summary <- list()
     
     # Pre-load functions before parallel processing (for multi-member grids)
     # This ensures functions are available in parallel worker environments
@@ -538,7 +647,7 @@ agroindexGrid <- function(index.code,
             get("computeET0", mode = "function", inherits = TRUE)
         }, error = function(...) {
             if ("climate4R.agro" %in% loadedNamespaces()) {
-                getFromNamespace("computeET0", ns = "climate4R.agro")
+                utils::getFromNamespace("computeET0", ns = "climate4R.agro")
             } else {
                 stop("computeET0 function not found. Please ensure 'climate4R.agro' is installed and loaded.")
             }
@@ -551,6 +660,7 @@ agroindexGrid <- function(index.code,
         build_seasons_map_loaded <- build_seasons_map
     }
     allow_member_parallel <- TRUE
+    member_parallel_active <- FALSE
     if (n.mem > 1) {
         effective_member_parallel <- isTRUE(parallel) && allow_member_parallel
         if (!allow_member_parallel && isTRUE(parallel)) {
@@ -560,8 +670,9 @@ agroindexGrid <- function(index.code,
                 # Ignore connection write errors
             })
         }
-        parallel.pars <- parallelCheck(effective_member_parallel, max.ncores, ncores)
-        apply_fun <- selectPar.pplyFun(parallel.pars, .pplyFUN = "lapply")
+        parallel.pars <- parallel_check(effective_member_parallel, max.ncores, ncores)
+        apply_fun <- select_par_pply_fun(parallel.pars, .pplyFUN = "lapply")
+        member_parallel_active <- isTRUE(parallel.pars$hasparallel)
         if (parallel.pars$hasparallel) {
             # Clean up parallel cluster with proper error handling to avoid connection errors
             on.exit({
@@ -579,7 +690,7 @@ agroindexGrid <- function(index.code,
             }, add = TRUE)
 
             if (!is.null(parallel.pars$cl)) {
-                cluster_load_packages(parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
+                cluster_load_packages(parallel.pars$cl, c("transformeR", "abind", "climate4R.agro"))
                 if (metadata$indexfun == "agroindexFAO") {
                     cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
                     cluster_assign_function(parallel.pars$cl, "computeET0", computeET0_loaded)
@@ -598,6 +709,7 @@ agroindexGrid <- function(index.code,
     } else {
         if (isTRUE(parallel)) message("NOTE: Parallel processing was skipped (unable to parallelize one single member)")
         apply_fun <- lapply
+        member_parallel_active <- FALSE
     }
     # Suppress output in parallel workers to avoid SIGPIPE and connection errors
     # Save current options and set to suppress warnings/messages in parallel mode
@@ -618,8 +730,14 @@ agroindexGrid <- function(index.code,
     # and tryCatch to catch errors
     out.list <- suppressWarnings({
         withCallingHandlers({
-            tryCatch({
-                apply_fun(1:n.mem, function(x) {
+            apply_fun(1:n.mem, function(x) {
+            if (isTRUE(verbose)) {
+                message("[", Sys.time(), "] Member ", x, ": starting ", index.code)
+                if (x == 1 && index.code %in% c("CDI", "CEI")) {
+                    debug_lines <- capture.output(str(index.arg.list))
+                    message("[", Sys.time(), "] index.arg.list:\n", paste(debug_lines, collapse = "\n"))
+                }
+            }
             # Comprehensive output suppression for parallel workers to avoid connection errors.
             # Only engage full suppression if member-level parallelism is actually active.
             if (n.mem > 1 && isTRUE(parallel.pars$hasparallel)) {
@@ -771,7 +889,7 @@ agroindexGrid <- function(index.code,
                 
                 if (dates_differ) {
                     tryCatch({
-                        grid.list.aux <- intersectGrid(grid.list.aux, type = "temporal", which.return = 1:length(grid.list.aux))
+                        grid.list.aux <- intersect_grid(grid.list.aux, type = "temporal", which.return = seq_along(grid.list.aux))
                         names(grid.list.aux) <- original_names_aux
                     }, error = function(e) {
                         # If intersection fails, try to align dates manually
@@ -798,7 +916,7 @@ agroindexGrid <- function(index.code,
                         ref_dates_end <- grid.list.aux[[ref_grid_idx]]$Dates$end
                         
                         # Align all grids to reference dates
-                        for (i in 1:length(grid.list.aux)) {
+                        for (i in seq_along(grid.list.aux)) {
                             if (i != ref_grid_idx && !is.null(grid.list.aux[[i]])) {
                                 current_dates <- as.Date(grid.list.aux[[i]]$Dates$start)
                                 # Find overlapping dates
@@ -830,471 +948,180 @@ agroindexGrid <- function(index.code,
                 }
             }
             
-            # Create output grid structure using aggregateGrid on sugrid (sets yearly structure)
-            out.aux <- suppressMessages(aggregateGrid(grid.list.aux[[1]], aggr.y = list(FUN = "mean", na.rm = TRUE)))
-            
-            # Extract data arrays (3D: time x lat x lon) from processed grids
+            fao_out <- local({
+                base_grid <- grid.list.aux[[1]]
+                base_dates <- as.Date(base_grid[["Dates"]][["start"]])
+                dates_mat <- cbind(
+                    as.numeric(format(base_dates, "%Y")),
+                    as.numeric(format(base_dates, "%m")),
+                    as.numeric(format(base_dates, "%d"))
+                )
+                years_unique <- sort(unique(as.integer(format(base_dates, "%Y"))))
+                n_years <- length(years_unique)
+                if (n_years == 0) {
+                    stop("No yearly data available for FAO agronomic index.")
+                }
+
             input.arg.list <- lapply(grid.list.aux, function(d) {
                 if (is.null(d)) return(NULL)
                 data_arr <- d[["Data"]]
-                data_dims <- dim(data_arr)
-                n_dims <- length(data_dims)
-                
-                # Handle different dimension cases
-                if (n_dims == 4) {
-                    # 4D array: likely member x time x lat x lon or time x lat x lon x something
-                    # Check dimension names if available
+                    dims <- dim(data_arr)
                     dim_names <- attr(data_arr, "dimensions")
-                    if (!is.null(dim_names)) {
-                        # If member dimension is present and size 1, drop it
-                        if ("member" %in% dim_names && data_dims[which(dim_names == "member")] == 1) {
-                            # Remove member dimension by selecting first (and only) member
-                            member_idx <- which(dim_names == "member")
-                            if (member_idx == 1) {
+                    if (length(dims) == 4 && !is.null(dim_names) && "member" %in% dim_names && dims[which(dim_names == "member")] == 1) {
+                        member_dim_idx <- which(dim_names == "member")
+                        if (member_dim_idx == 1) {
                                 data_arr <- data_arr[1, , , , drop = TRUE]
-                            } else if (member_idx == 2) {
+                        } else if (member_dim_idx == 2) {
                                 data_arr <- data_arr[, 1, , , drop = TRUE]
-                            } else if (member_idx == 3) {
+                        } else if (member_dim_idx == 3) {
                                 data_arr <- data_arr[, , 1, , drop = TRUE]
-                            } else if (member_idx == 4) {
+                        } else {
                                 data_arr <- data_arr[, , , 1, drop = TRUE]
                             }
-                        }
-                    } else {
-                        # No dimension names - assume first dimension is member if it's size 1
-                        if (data_dims[1] == 1) {
-                            data_arr <- array(data_arr, dim = data_dims[-1])
-                        } else {
-                            stop("Cannot handle 4D array without dimension names. Dimensions: ", 
-                                 paste(data_dims, collapse=" x "))
-                        }
+                    } else if (length(dims) == 4 && dims[1] == 1) {
+                        data_arr <- array(data_arr, dim = dims[-1])
+                    } else if (length(dims) < 2) {
+                        stop("Unexpected data dimensions for FAO agronomic processing.")
                     }
-                } else if (n_dims == 3) {
-                    # Already 3D, keep as is
-                    # No action needed
-                } else if (n_dims == 2) {
-                    # 2D array might be time x space (for station data)
-                    # This is acceptable
-                } else {
-                    stop("Unexpected array dimensions: ", n_dims, " dimensions (", 
-                         paste(data_dims, collapse=" x "), 
-                         "). Expected 3D (time x lat x lon) or 4D with removable member dimension.")
-                }
-                
-                # Final check - ensure we have at least 2 dimensions
-                if (length(dim(data_arr)) < 2) {
-                    stop("Array collapsed to fewer than 2 dimensions. Original dimensions: ", 
-                         paste(data_dims, collapse=" x "))
-                }
-                
-                return(data_arr)
-            })
-            
-            # Verify all arrays have the same dimensions
-            dims_list <- lapply(input.arg.list, function(x) if (!is.null(x)) dim(x) else NULL)
+                    data_arr
+                })
+                dims_list <- lapply(input.arg.list, function(arr) if (!is.null(arr)) dim(arr) else NULL)
             dims_list <- dims_list[!sapply(dims_list, is.null)]
             if (length(dims_list) > 1) {
-                first_dims <- dims_list[[1]]
+                    ref_dims <- dims_list[[1]]
                 for (i in 2:length(dims_list)) {
-                    if (!identical(dims_list[[i]], first_dims)) {
-                        stop("Data arrays have inconsistent dimensions. Expected: ", 
-                             paste(first_dims, collapse=" x "), 
-                             " but got: ", paste(dims_list[[i]], collapse=" x "))
-                    }
-                }
-            }
-            
-            # Get dates from the processed grid (convert to date matrix format)
-            datess <- as.Date(grid.list.aux[[1]][["Dates"]][["start"]])
-            datess <- cbind(
-                as.numeric(format(datess, "%Y")),
-                as.numeric(format(datess, "%m")),
-                as.numeric(format(datess, "%d"))
-            )
-            
-            # Get coordinates
-            lats <- grid.list.aux[[1]][["xyCoords"]][["y"]]
-            n_lons <- getShape(grid.list.aux[[1]])["lon"]
-            lons_vec <- tryCatch(grid.list.aux[[1]][["xyCoords"]][["x"]], error = function(...) NULL)
-            
-            # Prepare arguments
-            index.arg.list[["dates"]] <- datess
-            # Only add index.code for agroindexFAO, not for tier1 functions
-            if (metadata$indexfun == "agroindexFAO") {
-                index.arg.list[["index.code"]] <- index.code
-            }
-            
-            # Process lat-lon loops with error tracking and parallelization
-            # Create all lat/lon combinations for parallel processing
-            grid_points <- expand.grid(l = 1:length(lats), lo = 1:n_lons)
-            total_points <- nrow(grid_points)
-            
-            # Set up parallel processing for FAO agronomic indices (lat/lon loops)
-            # Parallelize at grid point level if:
-            # - parallel is requested AND
-            # - we have many grid points (>10) AND  
-            # - (single member OR not already parallelizing at member level)
-            # Note: We avoid nested parallelization (members already parallel) to prevent overhead
-            use_fao_parallel <- (parallel && total_points > 10 && n.mem == 1)
-            if (use_fao_parallel) {
-                fao_parallel.pars <- parallelCheck(parallel, max.ncores, ncores)
-                fao_apply_fun <- selectPar.pplyFun(fao_parallel.pars, .pplyFUN = "lapply")
-                if (fao_parallel.pars$hasparallel) {
-                    # Only print message if not in parallel member processing
-                    if (n.mem == 1) {
-                        core_count <- fao_parallel.pars$ncores
-                        if (is.null(core_count) || is.na(core_count)) {
-                            if (!is.null(fao_parallel.pars$cl)) {
-                                core_count <- length(fao_parallel.pars$cl)
-                            } else {
-                                detected <- tryCatch(parallel::detectCores(), error = function(...) NA_integer_)
-                                fallback <- if (!is.null(max.ncores) && !is.na(max.ncores)) max.ncores else detected
-                                if (is.na(fallback)) fallback <- 1L
-                                core_count <- min(fallback, total_points)
-                            }
+                        if (!identical(dims_list[[i]], ref_dims)) {
+                            stop("Data arrays have inconsistent dimensions. Expected ",
+                                 paste(ref_dims, collapse = " x "), " but got ",
+                                 paste(dims_list[[i]], collapse = " x "))
                         }
-                        tryCatch({
-                            message("[", Sys.time(), "] Parallelizing FAO agronomic index calculation over ", 
-                                   total_points, " grid points using ", core_count, " cores")
-                        }, error = function(e) {
-                            # Ignore connection write errors
-                        })
                     }
-                    if (!is.null(fao_parallel.pars$cl)) {
-                        cluster_load_packages(fao_parallel.pars$cl, c("transformeR", "magrittr", "abind", "dplyr", "climate4R.agro"))
-                        cluster_assign_function(fao_parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
-                        cluster_assign_function(fao_parallel.pars$cl, "computeET0", computeET0_loaded)
-                        cluster_assign_function(fao_parallel.pars$cl, "binSpell", binSpell_loaded)
-                        cluster_verify_functions(fao_parallel.pars$cl,
-                                                 c("agroindexFAO", "computeET0", "binSpell"))
-                    }
-                } else {
-                    if (n.mem == 1) {
-                        tryCatch({
-                            message("[", Sys.time(), "] Parallel processing requested but not available (Windows or single core). Using sequential processing for ", 
-                                   total_points, " grid points.")
-                        }, error = function(e) {
-                            # Ignore connection write errors
-                        })
-                    }
-                    fao_apply_fun <- lapply
                 }
-            } else {
-                fao_apply_fun <- lapply
-                fao_parallel.pars <- list(hasparallel = FALSE, cl = NULL)
-            }
-            
-            # Process all grid points (parallelized if enabled)
-            error_info <- list(count = 0, display_count = 0, first_error = NULL, first_all_na = NULL)
-            
-            # For multi-member grids, process in smaller batches to reduce memory usage
-            # Use smaller batch sizes for multi-member to prevent memory allocation failures
-            if (n.mem > 1 && total_points > 50) {
-                # Smaller batches for multi-member grids (50 instead of 100)
-                batch_size <- min(50, total_points)
-                n_batches <- ceiling(total_points / batch_size)
-                grid_results <- vector("list", total_points)  # Pre-allocate
+
+                lats <- base_grid[["xyCoords"]][["y"]]
+                lons_vec <- tryCatch(base_grid[["xyCoords"]][["x"]], error = function(...) NULL)
+                n_lat <- length(lats)
+                n_lon <- if (!is.null(lons_vec)) length(lons_vec) else get_shape(base_grid)[["lon"]]
+                if (is.null(n_lon) || is.na(n_lon)) n_lon <- dim(base_grid[["Data"]])[3]
+                if (is.null(n_lat) || is.null(n_lon) || n_lat == 0 || n_lon == 0) {
+                    stop("Unable to determine spatial dimensions for FAO agronomic index.")
+                }
+
+                fao_args_static <- index.arg.list
+                fao_args_static[c("dates", "lat", "index.code")] <- NULL
                 
-                for (batch_idx in 1:n_batches) {
-                    start_idx <- (batch_idx - 1) * batch_size + 1
-                    end_idx <- min(batch_idx * batch_size, total_points)
-                    batch_indices <- start_idx:end_idx
-                    
-                    batch_results <- lapply(batch_indices, function(i) {
-                        l <- grid_points$l[i]
-                        lo <- grid_points$lo[i]
-                        index.arg.list[["lat"]] <- lats[l]
-                        # Extract time series for this point from each data array
-                        point_data <- lapply(input.arg.list, function(z) {
-                            if (is.null(z)) return(NULL)
-                            z[, l, lo]
-                        })
-                        # Remove NULLs
-                        point_data <- point_data[!sapply(point_data, is.null)]
-                        
-                        # Call FAO function with point data and index arguments
-                        tryCatch({
-                            result <- do.call(fao_fun_loaded, c(point_data, index.arg.list))
-                            # GSL returns a list, extract the GSL component
-                            if (index.code == "gsl" && is.list(result)) {
-                                result <- result$GSL
-                            }
-                            if (all(is.na(result))) {
-                                if (is.null(error_info$first_all_na)) {
-                                    year_counts <- tryCatch(table(datess[, 1]), error = function(...) NULL)
-                                    var_na_counts <- tryCatch({
-                                        lapply(point_data, function(vec) sum(is.na(vec)))
-                                    }, error = function(...) NULL)
-                                    error_info$first_all_na <<- list(
-                                        lat = lats[l],
-                                        lon = if (!is.null(lons_vec)) lons_vec[lo] else NA_real_,
-                                        year_counts = year_counts,
-                                        var_na = var_na_counts
-                                    )
-                                }
-                            }
-                            result
+                result_array <- array(NA_real_, dim = c(n_years, n_lat, n_lon))
+                error_counter <- 0L
+                first_error_msg <- NULL
+                first_all_na <- NULL
+                
+                point_base_args <- c(
+                    list(dates = dates_mat, index.code = index.code),
+                    fao_args_static
+                )
+                
+                fao_runner <- if (n.mem > 1) {
+                    function(args_point) {
+                        withCallingHandlers(
+                            suppressMessages(suppressWarnings(
+                                do.call(fao_fun_loaded, args_point)
+                            )),
+                            warning = function(w) invokeRestart("muffleWarning"),
+                            message = function(m) invokeRestart("muffleMessage")
+                        )
+                    }
+                } else {
+                    function(args_point) {
+                        do.call(fao_fun_loaded, args_point)
+                    }
+                }
+                
+                for (lat_idx in seq_len(n_lat)) {
+                    lat_val <- lats[lat_idx]
+                    for (lon_idx in seq_len(n_lon)) {
+                        args_point <- point_base_args
+                        args_point$lat <- lat_val
+                        if (!is.null(input.arg.list$pr)) args_point$pr <- input.arg.list$pr[, lat_idx, lon_idx]
+                        if (!is.null(input.arg.list$tx)) args_point$tx <- input.arg.list$tx[, lat_idx, lon_idx]
+                        if (!is.null(input.arg.list$tn)) args_point$tn <- input.arg.list$tn[, lat_idx, lon_idx]
+                        if (!is.null(input.arg.list$tm)) args_point$tm <- input.arg.list$tm[, lat_idx, lon_idx]
+
+                        point_result <- tryCatch({
+                            fao_runner(args_point)
                         }, error = function(e) {
-                            error_info$count <<- error_info$count + 1
-                            # Store first error for debugging (especially useful for multi-member)
-                            if (is.null(error_info$first_error)) {
-                                error_info$first_error <<- paste0("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
+                            error_counter <<- error_counter + 1L
+                            if (is.null(first_error_msg)) {
+                                lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
+                                first_error_msg <<- paste0("lat=", lat_val, ", lon=", lon_val, ": ", e$message)
                             }
-                            if (error_info$display_count < MAX_ERROR_DISPLAY) {
-                                # Only show warnings for single-member processing
-                                if (n.mem == 1) {
-                                    tryCatch({
-                                        warning("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
-                                    }, error = function(e2) {
-                                        # Ignore connection write errors during warning
-                                    })
-                                }
-                                error_info$display_count <<- error_info$display_count + 1
-                            }
-                            # Return a vector of NAs with correct length (number of years)
-                            n_years_expected <- length(unique(datess[, 1]))
-                            rep(NA_real_, n_years_expected)
+                            rep(NA_real_, n_years)
                         })
-                    })
-                    
-                    # Store batch results efficiently
-                    for (i in seq_along(batch_indices)) {
-                        grid_results[[batch_indices[i]]] <- batch_results[[i]]
-                    }
-                    
-                    # Clean up batch results and force garbage collection more aggressively
-                    rm(batch_results)
-                    if (batch_idx %% 3 == 0) {  # More frequent GC (every 3 batches instead of 5)
-                        gc(verbose = FALSE)
-                    }
-                }
-            } else {
-                # Original processing for single-member or small grids
-                grid_results <- fao_apply_fun(1:total_points, function(i) {
-                    l <- grid_points$l[i]
-                    lo <- grid_points$lo[i]
-                    index.arg.list[["lat"]] <- lats[l]
-                    # Extract time series for this point from each data array
-                    point_data <- lapply(input.arg.list, function(z) z[, l, lo])
-                    
-                    # Call FAO function with point data and index arguments
-                    tryCatch({
-                        result <- do.call(metadata$indexfun, c(point_data, index.arg.list))
-                        # GSL returns a list, extract the GSL component
-                        if (index.code == "gsl" && is.list(result)) {
-                            result <- result$GSL
+
+                        if (is.list(point_result) && index.code == "gsl" && "GSL" %in% names(point_result)) {
+                            point_result <- point_result$GSL
                         }
-                        if (all(is.na(result))) {
-                            if (is.null(error_info$first_all_na)) {
-                                year_counts <- tryCatch(table(datess[, 1]), error = function(...) NULL)
-                                var_na_counts <- tryCatch({
-                                    lapply(point_data, function(vec) sum(is.na(vec)))
-                                }, error = function(...) NULL)
-                                error_info$first_all_na <<- list(
-                                    lat = lats[l],
-                                    lon = if (!is.null(lons_vec)) lons_vec[lo] else NA_real_,
-                                    year_counts = year_counts,
-                                    var_na = var_na_counts
-                                )
+
+                        if (length(point_result) != n_years) {
+                            if (length(point_result) == 1 && is.na(point_result)) {
+                                point_result <- rep(NA_real_, n_years)
+                            } else {
+                                error_counter <- error_counter + 1L
+                                if (is.null(first_error_msg)) {
+                                    lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
+                                    first_error_msg <- paste0("lat=", lat_val, ", lon=", lon_val,
+                                                               ": unexpected result length ", length(point_result),
+                                                               " (expected ", n_years, ")")
+                                }
+                                point_result <- rep(NA_real_, n_years)
                             }
                         }
-                        result
-                    }, error = function(e) {
-                        error_info$count <<- error_info$count + 1
-                        # Store first error for debugging (especially useful for multi-member)
-                        if (is.null(error_info$first_error)) {
-                            error_info$first_error <<- paste0("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
+
+                        if (all(is.na(point_result)) && is.null(first_all_na)) {
+                            lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
+                            na_counts <- lapply(args_point[c("pr", "tx", "tn", "tm")], function(vec) {
+                                if (is.null(vec)) return(NA_integer_)
+                                sum(is.na(vec))
+                            })
+                            first_all_na <- list(lat = lat_val, lon = lon_val, na = na_counts)
                         }
-                        if (error_info$display_count < MAX_ERROR_DISPLAY) {
-                            # Only show warnings for single-member processing
-                            if (n.mem == 1) {
-                                tryCatch({
-                                    warning("Error at lat=", lats[l], ", lon=", lo, ": ", e$message)
-                                }, error = function(e2) {
-                                    # Ignore connection write errors during warning
-                                })
-                            }
-                            error_info$display_count <<- error_info$display_count + 1
-                        }
-                        # Return a vector of NAs with correct length (number of years)
-                        n_years_expected <- length(unique(datess[, 1]))
-                        rep(NA_real_, n_years_expected)
-                    })
-                })
-            }
-            
-            # Clean up parallel cluster if it was created specifically for FAO grid points
-            if (use_fao_parallel && fao_parallel.pars$hasparallel && !is.null(fao_parallel.pars$cl)) {
-                tryCatch({
-                    suppressWarnings(parallel::stopCluster(fao_parallel.pars$cl))
-                }, error = function(e) {
-                    # Ignore connection errors during cleanup
-                })
-            }
-            
-            # Report error summary for FAO indices
-            if (error_info$count > 0) {
-                first_err <- error_info$first_error
-                err_msg <- paste0("FAO indices (member ", x, "): ", error_info$count, " grid point error(s).",
-                                  if (!is.null(first_err)) paste0(" First error: ", first_err) else "")
-                if (n.mem > 1) {
-                    stop(err_msg)
-                } else {
+
+                        result_array[, lat_idx, lon_idx] <- point_result
+                    }
+                }
+
+                if (error_counter > 0 && n.mem == 1) {
                     tryCatch({
-                        message("[", Sys.time(), "] ", err_msg)
+                        message("[", Sys.time(), "] FAO agronomic index (member ", x, "): ",
+                                error_counter, " grid point issue(s)",
+                                if (!is.null(first_error_msg)) paste0(". First: ", first_error_msg) else "")
+                        if (!is.null(first_all_na)) {
+                            message("  Example NA location lat=", first_all_na$lat, ", lon=", first_all_na$lon)
+                        }
+                    }, error = function(e) {})
+                } else if (error_counter > 0 && n.mem > 1) {
+                    tryCatch({
+                        message("[", Sys.time(), "] FAO agronomic index (member ", x, "): first error -> ",
+                                if (is.null(first_error_msg)) "(missing message)" else first_error_msg)
                     }, error = function(e) {})
                 }
-            }
             
-            # Check if ALL results are NA (indicates a systematic problem)
-            all_na_count <- sum(sapply(grid_results, function(r) all(is.na(r))))
-            if (all_na_count == total_points) {
-                tryCatch({
-                    if (n.mem == 1) {
-                        warning("All grid points returned NA for index ", index.code, 
-                               ". This may indicate a data or parameter issue.")
-                    } else {
-                        message("[", Sys.time(), "] FAO indices (member ", x, "): all grid points returned NA.")
-                    }
-                    if (!is.null(error_info$first_all_na)) {
-                        diag <- error_info$first_all_na
-                        message("  Example grid point lat=", diag$lat, ", lon=", diag$lon)
-                        if (!is.null(diag$year_counts)) {
-                            message("  Daily records per year: ",
-                                    paste(names(diag$year_counts), diag$year_counts, sep = "=", collapse = "; "))
-                        }
-                        if (!is.null(diag$var_na)) {
-                            na_str <- paste(
-                                names(diag$var_na),
-                                unlist(diag$var_na),
-                                sep = "=",
-                                collapse = "; "
-                            )
-                            message("  NA counts (per input series): ", na_str)
-                        }
-                    }
-                }, error = function(e) {})
-            }
-            
-            # Reconstruct output array: convert list of results to 3D array (time x lat x lon)
-            # Vectorized approach: build array directly from results using index mapping
-            # Each element in grid_results is a vector of length = number of years
-            
-            # Find first valid result to determine dimensions
-            first_valid_idx <- which(sapply(grid_results, function(r) length(r) > 1))[1]
-            if (is.na(first_valid_idx)) {
-                # All results are scalar NA - something went very wrong
-                # Use expected number of years from dates
-                n_years <- length(unique(datess[, 1]))
-                if (n.mem == 1) {
-                    tryCatch({
-                        warning("All grid points returned scalar NA for FAO index ", index.code, 
-                               ". Using expected number of years (", n_years, ") for output structure.")
-                    }, error = function(e) {})
+                out_grid <- base_grid
+                out_grid[["Data"]] <- unname(result_array)
+                attr(out_grid[["Data"]], "dimensions") <- c("time", "lat", "lon")
+                years_str <- sprintf("%04d", years_unique)
+                out_grid[["Dates"]][["start"]] <- as.Date(paste0(years_str, "-01-01"))
+                out_grid[["Dates"]][["end"]] <- as.Date(paste0(years_str, "-12-31"))
+                if (length(out_grid$xyCoords$y) != n_lat) out_grid$xyCoords$y <- lats
+                if (!is.null(lons_vec) && length(out_grid$xyCoords$x) != length(lons_vec)) {
+                    out_grid$xyCoords$x <- lons_vec
                 }
-            } else {
-                n_years <- length(grid_results[[first_valid_idx]])
-            }
-            
-            # Pre-allocate output array (time x lat x lon)
-            result_array <- array(NA_real_, dim = c(n_years, length(lats), n_lons))
-            
-            # Fill array using vectorized indexing
-            # grid_points is in expand.grid order: all lons for each lat sequentially
-            # Map each grid point result to correct array position
-            for (i in 1:total_points) {
-                l <- grid_points$l[i]
-                lo <- grid_points$lo[i]
-                current_result <- grid_results[[i]]
-                # Handle both vector and scalar NA results
-                if (length(current_result) == n_years) {
-                    result_array[, l, lo] <- current_result
-                } else if (length(current_result) == 1 && is.na(current_result)) {
-                    # Scalar NA - fill with NA vector
-                    result_array[, l, lo] <- rep(NA_real_, n_years)
-                } else {
-                    # Length mismatch - log warning and fill with NAs
-                    if (n.mem == 1 && i <= 5) {  # Only report first 5 mismatches
-                        tryCatch({
-                            warning("Result length mismatch at grid point ", i, 
-                                   " (lat=", lats[l], ", lon=", lo, "): expected ", n_years, 
-                                   ", got ", length(current_result))
-                        }, error = function(e) {})
-                    }
-                    result_array[, l, lo] <- rep(NA_real_, n_years)
-                }
-            }
-            
-            # Clean up large intermediate objects after reconstruction
-            rm(grid_points)
-            gc(verbose = FALSE)
-            
-            out.aux[["Data"]] <- unname(result_array)
-            attr(out.aux[["Data"]], "dimensions") <- c("time", "lat", "lon")
-            
-            # Update dates to yearly (FAO agronomic indices return one value per year)
-            # The output should have one value per year
-            n_output_times <- dim(out.aux[["Data"]])[1]
-            
-            # Extract unique years from the date matrix (datess has columns: year, month, day)
-            unique_years <- unique(datess[, 1])
-            
-            if (n_output_times == length(unique_years)) {
-                # Create yearly dates (Jan 1 to Dec 31 for each year)
-                years_str <- sprintf("%04d", unique_years)  # Ensure 4-digit years
-                start_dates <- as.Date(paste0(years_str, "-01-01"))
-                end_dates <- as.Date(paste0(years_str, "-12-31"))
-                out.aux[["Dates"]][["start"]] <- start_dates
-                out.aux[["Dates"]][["end"]] <- end_dates
-                if (n.mem == 1) {
-                    tryCatch({
-                        message("[", Sys.time(), "] FAO index ", index.code, 
-                               ": Set yearly dates (", n_output_times, " years from ", 
-                               min(unique_years), " to ", max(unique_years), ")")
-                    }, error = function(e) {
-                        # Ignore connection write errors
-                    })
-                }
-            } else {
-                # Dimension mismatch - this indicates a problem
-                # Check if maybe all values are NA or there's an error in calculation
-                # Suppress warning output to avoid connection errors in batch jobs
-                if (n.mem == 1) {
-                    tryCatch({
-                        warning("FAO index ", index.code, 
-                               ": Mismatch between output time dimension (", n_output_times, 
-                               ") and number of unique years (", length(unique_years), 
-                               "). Output may have incorrect time structure.")
-                    }, error = function(e2) {
-                        # Ignore connection write errors during warning
-                    })
-                }
-                # Try to use first n_output_times years
-                if (n_output_times <= length(unique_years)) {
-                    years_str <- sprintf("%04d", sort(unique_years)[1:n_output_times])
-                    start_dates <- as.Date(paste0(years_str, "-01-01"))
-                    end_dates <- as.Date(paste0(years_str, "-12-31"))
-                    out.aux[["Dates"]][["start"]] <- start_dates
-                    out.aux[["Dates"]][["end"]] <- end_dates
-                }
-            }
-            
-            # Safety check: ensure out.aux is valid before cleanup
-            if (is.null(out.aux) || is.null(out.aux[["Data"]])) {
-                # If out.aux is invalid, this is a serious error - let the error handler deal with it
-                stop("Failed to create valid output grid for FAO agronomic index. ",
-                     "This may indicate an issue with input data or grid structure.")
-            }
-            
-            # Memory cleanup
-            rm(list = c("grid_results", "result_array", "input.arg.list", "grid.list.aux"), 
-               envir = environment(), inherits = FALSE)
-            # Explicit garbage collection to free memory early (important for multi-member)
-            gc(verbose = FALSE)
-            
-            return(out.aux)
+
+                out_grid
+            })
+            return(fao_out)
         }
         
+        # NON-FAO INDICES (CDI, CEI, and Tier1 indices)
         # Set dates in index.arg.list if not already set
         if (is.null(index.arg.list[["dates"]])) {
             index.arg.list[["dates"]] <- ref_dates_date
@@ -1349,9 +1176,9 @@ agroindexGrid <- function(index.code,
         error_display_count <- 0
         
         # Iterate over latitudes
-        latloop <- lapply(1:length(lats), function(l) {
+        latloop <- lapply(seq_along(lats), function(l) {
             # Iterate over longitudes
-            lonloop <- lapply(1:length(lons), function(lo) {
+            lonloop <- lapply(seq_along(lons), function(lo) {
                 # Extract time series for this lat-lon point
                 result <- tryCatch({
                     if (index.code %in% c("CDI", "CEI")) {
@@ -1414,17 +1241,30 @@ agroindexGrid <- function(index.code,
                                 # Extract final cumulative value per season
                                 # For CDI: max of cum_days per season
                                 # For CEI: max of cum_excess per season
+                                compute_season_max <- function(column_name) {
+                                    seasons <- cdi_cei_result$season_id
+                                    values_vec <- cdi_cei_result[[column_name]]
+                                    if (is.null(seasons) || length(seasons) == 0) {
+                                        return(numeric(0))
+                                    }
+                                    unique_seasons <- unique(seasons)
+                                    vapply(
+                                        unique_seasons,
+                                        function(season_val) {
+                                            season_values <- values_vec[seasons == season_val]
+                                            if (length(season_values) == 0 || all(is.na(season_values))) {
+                                                return(NA_real_)
+                                            }
+                                            max(season_values, na.rm = TRUE)
+                                        },
+                                        numeric(1)
+                                    )
+                                }
                                 if (index.code == "CDI") {
-                                    result <- cdi_cei_result %>% 
-                                        group_by(season_id) %>% 
-                                        summarize(value = max(cum_days, na.rm = TRUE), .groups = "drop") %>% 
-                                        pull(value)
+                                    result <- compute_season_max("cum_days")
                                 } else {
                                     # CEI
-                                    result <- cdi_cei_result %>% 
-                                        group_by(season_id) %>% 
-                                        summarize(value = max(cum_excess, na.rm = TRUE), .groups = "drop") %>% 
-                                        pull(value)
+                                    result <- compute_season_max("cum_excess")
                                 }
                                 
                                 # Check if result length matches expected (should be number of seasons/years)
@@ -1587,7 +1427,8 @@ agroindexGrid <- function(index.code,
         # Transform to climate4R grid structure using helper function
         # Extract member grid to use as template (needed for proper grid structure)
         refGrid_member <- NULL
-        refGrid_member <- get_member_template_grid(x, n.mem)
+        refGrid_member <- get_member_template_grid(x, n.mem,
+                                                   tx, tn, pr, tm, hurs, sfcwind, ssrd)
         
         if (is.null(refGrid_member)) {
             stop("No input grid available to use as template")
@@ -1621,32 +1462,41 @@ agroindexGrid <- function(index.code,
         }, error = function(e) {
             # Suppress warning output to avoid connection errors in batch jobs
             # The error is already captured in the error handler
+            error_msg <- conditionMessage(e)
             if (n.mem == 1) {
                 tryCatch({
-                    warning("Error processing member ", x, ": ", e$message)
+                    warning("Error processing member ", x, ": ", error_msg)
                 }, error = function(e2) {
                     # Ignore connection write errors during warning
                 })
             }
             # Create a grid with NA values but same structure as other members
             # Use helper function to simplify code
-            refGrid_member <- get_member_template_grid(x, n.mem)
+            refGrid_member <- get_member_template_grid(x, n.mem,
+                                                       tx, tn, pr, tm, hurs, sfcwind, ssrd)
 
             if (is.null(refGrid_member)) {
                 # Fallback to refGrid from outer scope
                 refGrid_member <- if (n.mem > 1) {
-                    subsetGrid(refGrid, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+                    redim_tr(subset_grid(refGrid, members = x, drop = TRUE), loc = FALSE, member = FALSE)
                 } else {
-                    refGrid %>% redim(loc = FALSE, member = FALSE)
+                    redim_tr(refGrid, loc = FALSE, member = FALSE)
                 }
             }
             
             # Fill with NA and set appropriate dates
-            refGrid_member[["Data"]][] <- NA
-            refGrid_member[["Dates"]][["start"]] <- ref_dates_date
-            refGrid_member[["Dates"]][["end"]] <- ref_dates_date
+            if (!is.null(refGrid_member) && !is.null(refGrid_member[["Data"]])) {
+                refGrid_member[["Data"]][] <- NA
+                refGrid_member[["Dates"]][["start"]] <- ref_dates_date
+                refGrid_member[["Dates"]][["end"]] <- ref_dates_date
+                attr(refGrid_member, ".agroindex_error") <- list(
+                    member = x,
+                    stage = "member_computation",
+                    message = error_msg
+                )
+            }
             refGrid_member  # Return error grid
-            })
+        })
         }, error = function(e) {
             # Outer error handler: catch all errors and return a valid grid structure
             # This ensures we always return something that can be combined, even if it's all NAs
@@ -1655,6 +1505,8 @@ agroindexGrid <- function(index.code,
             # Check if this is a connection/SIGPIPE error
             is_connection_error <- (
                 grepl("connection", error_msg, ignore.case = TRUE) ||
+                grepl("conexion", error_msg, ignore.case = TRUE) ||
+                grepl("conex", error_msg, ignore.case = TRUE) ||
                 grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
                 grepl("broken pipe", error_msg, ignore.case = TRUE) ||
                 grepl("ignoring SIGPIPE", error_msg, ignore.case = TRUE)
@@ -1663,17 +1515,18 @@ agroindexGrid <- function(index.code,
             # For multi-member grids, always try to return a valid grid structure (even if all NAs)
             # This allows the computation to continue even if one worker has issues
             # SIGPIPE errors are common in parallel processing and should be handled gracefully
-            if (n.mem > 1 || is_connection_error) {
+            if (member_parallel_active) {
                 tryCatch({
-                    refGrid_member <- get_member_template_grid(x, n.mem)
+                    refGrid_member <- get_member_template_grid(x, n.mem,
+                                                               tx, tn, pr, tm, hurs, sfcwind, ssrd)
                     
                     if (is.null(refGrid_member)) {
                         # Fallback: try to use refGrid from outer scope
                         tryCatch({
                             refGrid_member <- if (n.mem > 1) {
-                                subsetGrid(refGrid, members = x, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
+                                redim_tr(subset_grid(refGrid, members = x, drop = TRUE), loc = FALSE, member = FALSE)
                             } else {
-                                refGrid %>% redim(loc = FALSE, member = FALSE)
+                                redim_tr(refGrid, loc = FALSE, member = FALSE)
                             }
                         }, error = function(e3) {
                             # If that fails, try to get any available grid
@@ -1728,6 +1581,11 @@ agroindexGrid <- function(index.code,
                             refGrid_member[["Dates"]][["start"]] <- ref_dates_date
                             refGrid_member[["Dates"]][["end"]] <- ref_dates_date
                         }
+                        attr(refGrid_member, ".agroindex_error") <- list(
+                            member = x,
+                            stage = if (is_connection_error) "connection_recovery" else "member_computation",
+                            message = error_msg
+                        )
                         return(refGrid_member)
                     } else {
                         # Last resort: return NULL (will be handled by combination code)
@@ -1745,119 +1603,94 @@ agroindexGrid <- function(index.code,
                     return(NULL)
                 })
             } else {
-                # For single-member, re-throw the error so user can see what went wrong
+                # Re-throw to expose underlying error when not parallelizing
                 stop(e)
             }
         })
         
         # Return the result from the inner computation
         return(result)
-        })
-            }, error = function(e) {
-        # Top-level error handler for parallel computation
-        # This should rarely be reached since inner error handlers should catch most errors
-        # SIGPIPE and connection errors should be caught by the outer error handler
-        error_msg <- if (is.character(e$message)) e$message else as.character(e)
-        
-        # Check if this is a connection/SIGPIPE error
-        is_connection_error <- (
-            grepl("connection", error_msg, ignore.case = TRUE) ||
-            grepl("SIGPIPE", error_msg, ignore.case = TRUE) ||
-            grepl("broken pipe", error_msg, ignore.case = TRUE) ||
-            grepl("ignoring SIGPIPE", error_msg, ignore.case = TRUE)
-        )
-        
-        # If this is a SIGPIPE/connection error and we have multi-member grids,
-        # the outer error handler should have caught it. If we reach here, it means
-        # the error occurred before the outer handler could catch it.
-        # For SIGPIPE errors, try to create valid grids for all members
-        if (is_connection_error && n.mem > 1) {
-            # Create a list of valid (but empty) grids for all members
-            # This allows the computation to continue
-            tryCatch({
-                ref_grid_template <- get_member_template_grid(1, n.mem)
-                
-                if (is.null(ref_grid_template)) {
-                    ref_grid_template <- if (n.mem > 1) {
-                        subsetGrid(refGrid, members = 1, drop = TRUE) %>% redim(loc = FALSE, member = FALSE)
-                    } else {
-                        refGrid %>% redim(loc = FALSE, member = FALSE)
-                    }
-                }
-                
-                # Create grids for all members with NA values
-                out_list_recovery <- lapply(1:n.mem, function(mem_idx) {
-                    mem_grid <- if (mem_idx == 1) {
-                        ref_grid_template
-                    } else {
-                        # For other members, try to extract their grid
-                        tryCatch({
-                            member_grid_candidate <- get_member_template_grid(mem_idx, n.mem)
-                            if (!is.null(member_grid_candidate)) member_grid_candidate else ref_grid_template
-                        }, error = function(e) {
-                            ref_grid_template
-                        })
-                    }
-                    
-                    # Fill with NAs and set appropriate structure
-                    if (!is.null(mem_grid) && !is.null(mem_grid[["Data"]])) {
-                        # Check if this is FAO agronomic index
-                        is_fao_agro <- tryCatch({
-                            !is.null(metadata) && !is.null(metadata$indexfun) && metadata$indexfun == "agroindexFAO"
-                        }, error = function(e) FALSE)
-                        
-                        if (is_fao_agro) {
-                            # Yearly structure for FAO agronomic indices
-                            years <- ref_years
-                            n_years <- length(years)
-                            if (length(dim(mem_grid[["Data"]])) == 3) {
-                                n_lat <- dim(mem_grid[["Data"]])[2]
-                                n_lon <- dim(mem_grid[["Data"]])[3]
-                                mem_grid[["Data"]] <- array(NA, dim = c(n_years, n_lat, n_lon))
-                                attr(mem_grid[["Data"]], "dimensions") <- c("time", "lat", "lon")
-                            }
-                            start_dates <- as.Date(paste0(years, "-01-01"))
-                            end_dates <- as.Date(paste0(years, "-12-31"))
-                            mem_grid[["Dates"]][["start"]] <- start_dates
-                            mem_grid[["Dates"]][["end"]] <- end_dates
-                        } else {
-                            mem_grid[["Data"]][] <- NA
-                            mem_grid[["Dates"]][["start"]] <- ref_dates_date
-                            mem_grid[["Dates"]][["end"]] <- ref_dates_date
-                        }
-                    }
-                    return(mem_grid)
-                })
-                
-                return(out_list_recovery)
-            }, error = function(e2) {
-                # If recovery fails, re-throw the original error
-                stop("Error during parallel computation: ", error_msg, 
-                     "\nRecovery attempt also failed: ", e2$message)
             })
+    }, warning = function(w) {
+        # Catch SIGPIPE warnings specifically in withCallingHandlers
+        warn_msg <- if (is.character(w$message)) {
+            w$message
         } else {
-            # For non-connection errors or single-member, re-throw
-            stop("Error during parallel computation: ", error_msg, 
-                 "\nThis error occurred at the top level of member processing. ",
-                 "Check that all required functions and data are available in parallel workers.")
+            as.character(w)
         }
-            })
-        }, warning = function(w) {
-            # Catch SIGPIPE warnings specifically in withCallingHandlers
-            warn_msg <- if (is.character(w$message)) w$message else as.character(w)
-            if (grepl("SIGPIPE", warn_msg, ignore.case = TRUE) && n.mem > 1) {
-                # Suppress SIGPIPE warnings in parallel mode
-                invokeRestart("muffleWarning")
-            }
-        }, message = function(m) {
-            # Catch SIGPIPE messages (sometimes printed as messages, not warnings)
-            msg_text <- if (is.character(m$message)) m$message else as.character(m)
-            if (grepl("SIGPIPE", msg_text, ignore.case = TRUE) && n.mem > 1) {
-                # Suppress SIGPIPE messages in parallel mode
-                invokeRestart("muffleMessage")
-            }
-        })
+        if (grepl("SIGPIPE", warn_msg, ignore.case = TRUE) && n.mem > 1) {
+            # Suppress SIGPIPE warnings in parallel mode
+            invokeRestart("muffleWarning")
+        }
+    }, message = function(m) {
+        # Catch SIGPIPE messages (sometimes printed as messages, not warnings)
+        msg_text <- if (is.character(m$message)) {
+            m$message
+        } else {
+            as.character(m)
+        }
+        if (grepl("SIGPIPE", msg_text, ignore.case = TRUE) && n.mem > 1) {
+            # Suppress SIGPIPE messages in parallel mode
+            invokeRestart("muffleMessage")
+        }
     })
+})
+    
+    # Collect error information returned by workers (if any)
+    if (is.list(out.list)) {
+        for (idx in seq_along(out.list)) {
+            err_attr <- attr(out.list[[idx]], ".agroindex_error", exact = TRUE)
+            if (!is.null(err_attr)) {
+                if (is.null(err_attr$member)) {
+                    err_attr$member <- idx
+                }
+                err_attr$return_index <- idx
+                member_error_summary[[length(member_error_summary) + 1]] <- err_attr
+                attr(out.list[[idx]], ".agroindex_error") <- NULL
+            }
+        }
+    } else {
+        err_attr <- attr(out.list, ".agroindex_error", exact = TRUE)
+        if (!is.null(err_attr)) {
+            if (is.null(err_attr$member)) {
+                err_attr$member <- 1
+            }
+            err_attr$return_index <- 1
+            member_error_summary[[length(member_error_summary) + 1]] <- err_attr
+            attr(out.list, ".agroindex_error") <- NULL
+        }
+    }
+    
+    if (length(member_error_summary) > 0) {
+        member_error_names <- vapply(member_error_summary, function(err) {
+            member_val <- err$member
+            if (is.null(member_val) || length(member_val) == 0 || is.na(member_val)) {
+                return("member_unknown")
+            }
+            paste0("member_", member_val)
+        }, character(1))
+        names(member_error_summary) <- member_error_names
+    }
+    
+    connection_patterns <- c("SIGPIPE", "broken pipe", "connection", "conexion", "conex", "error al escribir en una conexion")
+    connection_only <- length(member_error_summary) > 0 &&
+        all(vapply(member_error_summary, function(err) {
+            msg <- err$message
+            if (is.null(msg)) return(FALSE)
+            any(vapply(connection_patterns, function(pat) grepl(pat, msg, ignore.case = TRUE), logical(1)))
+        }, logical(1)))
+    
+    if (connection_only && !isTRUE(._retry)) {
+        tryCatch({
+            message("[", Sys.time(), "] Worker connection errors detected; retrying sequentially to expose underlying error.")
+        }, error = function(e) {
+            return(NULL)
+        })
+        original_call$parallel <- FALSE
+        original_call$ncores <- 1
+        original_call[["._retry"]] <- TRUE
+        return(eval(original_call, envir = parent.frame()))
+    }
     
     # Suppress message output to avoid connection errors in batch jobs
     tryCatch({
@@ -1867,19 +1700,32 @@ agroindexGrid <- function(index.code,
     })
     
     out <- combine_member_results(out.list, station, metadata, index.code)
+    if (length(member_error_summary) > 0) {
+        first_err <- member_error_summary[[1]]
+        member_label <- if (!is.null(first_err$member)) first_err$member else first_err$return_index
+        err_msg <- if (!is.null(first_err$message)) first_err$message else "(missing error message)"
+        issues_count <- length(member_error_summary)
+        issues_suffix <- if (issues_count == 1) " issue" else " issues"
+        message_text <- paste0(
+            "[", Sys.time(), "] Worker issue detected (member ", member_label, "): ", err_msg,
+            "\nInspect attr(result, \"member_errors\") for details on ", issues_count, issues_suffix, "."
+        )
+        tryCatch({
+            message(message_text)
+        }, error = function(e) {
+            # Ignore connection write errors during message
+        })
+        attr(out, "member_errors") <- member_error_summary
+    }
     invisible(out)
-}
-
-
-
+}                          
 
 
 #' @title List all available Agroclimatic Indices
 #' @description Print a table with a summary of the available agroclimatic indices including FAO tier1 indices and stress indices
 #' @return Print a table on the screen with the following columns:
 #' \itemize{
-#' \item \strong{code}: Code of the index. This is the character string used as input value
-#' for the argument \code{index.code} in \code{\link{agroindexGrid}}
+#' \item \strong{code}: Code of the index. This is the character string used as input value for the argument \code{index.code} in \code{\link{agroindexGrid}}
 #' \item \strong{longname}: Long description of the index
 #' \item \strong{index.fun}: The name of the internal function used to calculate it
 #' \item \strong{tn,tx,tm,pr,hurs,sfcwind,ssrd}: Logical values (0/1) indicating the input variables required for index calculation
@@ -1888,8 +1734,7 @@ agroindexGrid <- function(index.code,
 #' @references FAO agroclimatic indices documentation
 #' @author J. Bedia (original)
 #' @export
-#' @importFrom magrittr %>%
-
+#'
 agroindexShow <- function() {
     read.master()
 }
@@ -1897,53 +1742,59 @@ agroindexShow <- function() {
 
 
 #' @keywords internal
-#' @importFrom magrittr %>%
 #' @importFrom utils read.table
 
 read.master <- function() {
-    # Try installed package first, then development location
-    master_file <- system.file("master", package = "climate4R.agro")
-    
-    # If package not installed, try development paths
-    if (master_file == "" || !file.exists(master_file)) {
-        # Try common development locations
-        dev_paths <- c(
-            "C:/Users/pablo/Desktop/climate4R.agro/inst/master",  # absolute path for development
-            '/lustre/gmeteo/WORK/lavinp/test/inst/master',
-            file.path(getwd(), "inst", "master"),  # relative to working directory
-            file.path(getwd(), "..", "inst", "master"),  # one level up
-            "inst/master",  # relative from package root
-            "../inst/master"  # relative from R/
-        )
-        
-        for (path in dev_paths) {
-            if (file.exists(path)) {
-                master_file <- path
-                message("Using master file from: ", path)
-                break
-            }
-        }
+  # Try installed package first, then development location
+  master_file <- system.file("master", package = "climate4R.agro")
+
+  # If package not installed, try development paths
+  if (master_file == "" || !file.exists(master_file)) {
+    # Common development locations
+    dev_paths <- c(
+      "C:/Users/pablo/Desktop/climate4R.agro/inst/master",
+      "/lustre/gmeteo/WORK/lavinp/test/inst/master",
+      file.path(getwd(), "inst", "master"),
+      file.path(getwd(), "..", "inst", "master"),
+      "inst/master",
+      "../inst/master"
+    )
+
+    for (path in dev_paths) {
+      if (file.exists(path)) {
+        master_file <- path
+        message("Using master file from: ", path)
+        break
+      }
     }
-    
-    if (master_file == "" || !file.exists(master_file)) {
-        stop("Cannot find master file. Tried paths:\n",
-             "  - system.file('master', package = 'climate4R.agro')\n",
-             "  - C:/Users/pablo/Desktop/climate4R.agro/inst/master\n",
-             "  - inst/master (relative paths)\n",
-             "Please ensure climate4R.agro package is installed or master file exists in inst/ folder.")
-    }
-    
-    master_dir <- dirname(master_file)
-    extra_paths <- unique(na.omit(c(getOption("climate4R.agro.extra_paths"),
-                                    master_dir,
-                                    normalizePath(file.path(master_dir, ".."), mustWork = FALSE),
-                                    normalizePath(file.path(master_dir, "..", ".."), mustWork = FALSE))))
-    options(climate4R.agro.extra_paths = extra_paths)
-    read.table(master_file, 
-               header = TRUE,
-               sep = ";",
-               stringsAsFactors = FALSE,
-               na.strings = "")
+  }
+
+  if (master_file == "" || !file.exists(master_file)) {
+    stop(
+      "Cannot find master file. Tried paths:\n",
+      "  - system.file(\"master\", package = \"climate4R.agro\")\n",
+      "  - C:/Users/pablo/Desktop/climate4R.agro/inst/master\n",
+      "  - inst/master (relative paths)\n",
+      "Please ensure climate4R.agro package is installed or master file exists ",
+      "in inst/ folder."
+    )
+  }
+
+  master_dir <- dirname(master_file)
+  extra_paths <- unique(na.omit(c(
+    getOption("climate4R.agro.extra_paths"),
+    master_dir,
+    normalizePath(file.path(master_dir, ".."), mustWork = FALSE),
+    normalizePath(file.path(master_dir, "..", ".."), mustWork = FALSE)
+  )))
+  options(climate4R.agro.extra_paths = extra_paths)
+  read.table(
+    master_file,
+    header = TRUE,
+    sep = ";",
+    stringsAsFactors = FALSE,
+    na.strings = ""
+  )
 }
 
 

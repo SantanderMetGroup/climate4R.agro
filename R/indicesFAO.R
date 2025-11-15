@@ -3,8 +3,9 @@
 #' @title FAO Agronomic indices
 #' @description Compute the selected FAO Agronomic index
 #' @param index.code Character of the index code to be computed. Options are:
-#'   "dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn = rep", "dc_agsn, "rn_agsn, 
-#'   "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", "dc_txh_agsn", "dc_tnh_agsn" (See Details).
+#'   "dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn",
+#'   "dc_agsn", "rn_agsn", "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", "dc_txh_agsn",
+#'   "dc_tnh_agsn" (See Details).
 #' @details 
 #' dt_st_rnagsn = first start date of the Agronomic Season (AS)
 #' nm_flst_rnagsn =  number of false starts of the AS
@@ -61,7 +62,7 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
       year.end = which(dates[, 1] == iyear + 1 & dates[, 2] == 6 & dates[, 3] == 30)
     }
     
-    if (length(year.init) > 0 & length(year.end) > 0) {  # checking for complete agronomic year
+    if (length(year.init) > 0 && length(year.end) > 0) {  # checking for complete agronomic year
       ind.year = year.init:year.end;  nday = length(ind.year)
       dates.year = dates[ind.year, ]
       
@@ -81,8 +82,8 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
         #########################################
         ET0 = computeET0(lat, dates.year, tx.year, tn.year) 
         
-        ET0[is.na(ET0)] = mean(ET0, na.rm = T)  # filling NA values with the average ET0 (to not affect greatly the computation of ET0)
-        ET0[ET0 == 0] = mean(ET0, na.rm = T)  # filling 0 values with the average ET0 (to not affect greatly the computation of ET0)
+        ET0[is.na(ET0)] = mean(ET0, na.rm = TRUE)  # filling NA values with the average ET0 (to not affect greatly the computation of ET0)
+        ET0[ET0 == 0] = mean(ET0, na.rm = TRUE)  # filling 0 values with the average ET0 (to not affect greatly the computation of ET0)
         
         #######################################
         ## Water Soil Content (WSC), day by day
@@ -93,18 +94,18 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
         ## first day of agronomic year
         WSC = rep(NA, nday)
         aux.WSC = pr.year.WSC[1] - ET0[1]
-        if (!is.na(aux.WSC) & aux.WSC < 0) {
+        if (!is.na(aux.WSC) && aux.WSC < 0) {
           aux.WSC = 0
-        } else if (!is.na(aux.WSC) & aux.WSC > shc) {
+        } else if (!is.na(aux.WSC) && aux.WSC > shc) {
           aux.WSC = shc  # anything above shc goes to runoff
         }
         WSC[1] = aux.WSC;  rm(aux.WSC)
         ## rest of days in agronomic year
         for (iday in 2:nday) {
           aux.WSC =  WSC[iday-1] + pr.year.WSC[iday] - ET0[iday]  # daily WSC is computed by adding any remaining moisture from the previous day to current day rainfall after removing PET (rainfall below large storm definition rnlg minus PET, and up to shc)
-          if (!is.na(aux.WSC) & aux.WSC < 0) {
+          if (!is.na(aux.WSC) && aux.WSC < 0) {
             aux.WSC = 0
-          } else if (!is.na(aux.WSC) & aux.WSC > shc) {
+          } else if (!is.na(aux.WSC) && aux.WSC > shc) {
             aux.WSC = shc  # anything above shc goes to runoff
           }
           WSC[iday] = aux.WSC;  rm(aux.WSC)
@@ -139,14 +140,14 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
             nFS = nFS + 1;
             aux = which(lv.spell$val == 0 & lv.spell$len >= 5)[1]
             
-            if ((fSAG+sum(lv.spell$len[1:aux])+1) < max(potSAG, na.rm = T)) {
+            if ((fSAG+sum(lv.spell$len[1:aux])+1) < max(potSAG, na.rm = TRUE)) {
               fSAG = fSAG + sum(lv.spell$len[1:aux])+1
               
               fSAG = potSAG[potSAG >= fSAG]
               fSAG = fSAG[1]
               
               indW = seq(fSAG+1, fSAG+30)
-              if (max(indW, na.rm = T) <= nday) {
+              if (max(indW, na.rm = TRUE) <= nday) {
                 bindWSC = WSC[indW]
                 bindWSC[bindWSC > 0] = 1
                 
@@ -214,17 +215,17 @@ agroindexFAO = function(lat, dates, index.code, pr = NULL, tx = NULL, tn = NULL,
               tn.AS = tn.year[seq(sAS, eAS-1)]  # tn in AS
               
               out[which(year == iyear)] <- switch(index.code,
-                            "dc_agsn" =  sum(pr.AS >= rndy, na.rm = T),  # number of rainy days in AS
-                            "rn_agsn" = sum(pr.AS[pr.AS >= rndy], na.rm = T),  # total amount of rain in AS
-                            "avrn_agsn" = mean(pr.AS[pr.AS >= rndy], na.rm = T),  # average amount of rain in rainy days in AS
-                            "dc_rnlg_agsn" = sum(pr.AS >= rnlg, na.rm = T),  # number of days with "high" rain in AS
+                            "dc_agsn" =  sum(pr.AS >= rndy, na.rm = TRUE),  # number of rainy days in AS
+                            "rn_agsn" = sum(pr.AS[pr.AS >= rndy], na.rm = TRUE),  # total amount of rain in AS
+                            "avrn_agsn" = mean(pr.AS[pr.AS >= rndy], na.rm = TRUE),  # average amount of rain in rainy days in AS
+                            "dc_rnlg_agsn" = sum(pr.AS >= rnlg, na.rm = TRUE),  # number of days with "high" rain in AS
                             
                             ##############################
                             ## temperature-related indices
                             ##############################
-                            "tm_agsn" = mean(tm.AS, na.rm = T),  # average daily tm in AS
-                            "dc_txh_agsn" = sum(tx.AS >= txh, na.rm = T),  # number of "hot" tmax days in AS
-                            "dc_tnh_agsn" = sum(tn.AS >= tnh, na.rm = T)  # number of "hot" tmin days in AS
+                            "tm_agsn" = mean(tm.AS, na.rm = TRUE),  # average daily tm in AS
+                            "dc_txh_agsn" = sum(tx.AS >= txh, na.rm = TRUE),  # number of "hot" tmax days in AS
+                            "dc_tnh_agsn" = sum(tn.AS >= tnh, na.rm = TRUE)  # number of "hot" tmin days in AS
               )
             }
           }
@@ -263,6 +264,6 @@ computeET0 = function(lat, dates, tx, tn) {
 #######################
 ## call to the function
 #######################
-# load("/media/maialen/work/WORK/LOCAL/FAO_INDICES/data_example_mai.rda", verbose = T)
+# load("/media/maialen/work/WORK/LOCAL/FAO_INDICES/data_example_mai.rda", verbose = TRUE)
 # AI = agroindexFAO(index.code = "dc_tnh_agsn", lat = args$lat, dates = args$dates, pr = args$pr, tx = args$tx, tn = args$tn)
 # AI
