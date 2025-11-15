@@ -25,8 +25,9 @@ agroindexFAO(
 \item{dates}{Vector of dates}
 
 \item{index.code}{Character of the index code to be computed. Options are:
-"dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn = rep", "dc_agsn, "rn_agsn,
-"avrn_agsn", "dc_rnlg_agsn", "tm_agsn", "dc_txh_agsn", "dc_tnh_agsn" (See Details).}
+"dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn",
+"dc_agsn", "rn_agsn", "avrn_agsn", "dc_rnlg_agsn", "tm_agsn", "dc_txh_agsn",
+"dc_tnh_agsn" (See Details).}
 
 \item{pr}{Vector of precipitation data}
 

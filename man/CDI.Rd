@@ -43,14 +43,16 @@ for each variable:
 \item{\code{inc_lower}}{Logical; whether the lower bound is inclusive (default \code{TRUE}).}
 \item{\code{inc_upper}}{Logical; whether the upper bound is inclusive (default \code{TRUE}).}
 }
-For example:\preformatted{bounds <- tibble::tibble(
+For example:
+
+\if{html}{\out{<div class="sourceCode">}}\preformatted{bounds <- tibble::tibble(
   var = c("temp","humidity"),
   lower = c(10, 40),
   upper = c(30, 80),
   inc_lower = TRUE,
   inc_upper = TRUE
 )
-}
+}\if{html}{\out{</div>}}
 
 A day is considered valid for a given variable if its value lies within
 the specified range (taking inclusivity into account).}
