@@ -1,9 +1,9 @@
 Package: climate4R.agro
-Title: Agroclimatic Index calculation for climate4R data
-Version: 0.1.3
+Title: Agroclimatic Index Calculation for climate4R Data
+Version: 0.1.4
 Date: 2025-11-11
-Description: A comprehensive R package for calculating agroclimatic indices from climate data, built on the climate4R framework.
-Depends: R (>= 3.6.0)
+Description: A comprehensive R package for calculating agroclimatic indices from climate data, built on the climate4R framework. The distribution includes a GPL-3 LICENSE file as well as the auxiliary 'man-roxygen/' directory containing shared roxygen templates.
+Depends: R (>= 4.0.0)
 Imports: transformeR (>= 1.4.4),
          magrittr,
          parallel,
@@ -11,15 +11,17 @@ Imports: transformeR (>= 1.4.4),
          abind,
          tibble,
          rlang
-Suggests: loadeR,
-          visualizeR
-Authors@R: as.person(c(
-    "Santander Meteorology Group <http://meteo.unican.es> [cph]",
-    "Pablo Lavín <pablo.lavinp@alumnos.unican.es> [aut,cre]"))
+Authors@R: c(
+    person(given = "Santander Meteorology Group",
+           role = "cph",
+           email = "climate4r@meteo.unican.es"),
+    person(given = "Pablo",
+           family = "Lavin Pellon",
+           email = "pablo.lavinp@alumnos.unican.es",
+           role = c("aut", "cre")))
 BugReports: https://github.com/SantanderMetGroup/climate4R.agro/issues
-URL: http://meteo.unican.es/climate4R
-License: file LICENSE
+URL: https://github.com/SantanderMetGroup/climate4R.agro, https://github.com/SantanderMetGroup/climate4R
+License: GPL-3 | file LICENSE
 Encoding: UTF-8
-LazyData: true
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2
 Roxygen: list(markdown = TRUE)
