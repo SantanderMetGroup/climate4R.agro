@@ -111,78 +111,87 @@ yearStartEnd <- function(dates, year, year.start = NULL, year.end = NULL) {
 
 gsl <- function(tm, dates, lat, pnan = 25) {
   
-  year = unique(dates[, 1])  # years of analysis
+  year <- unique(dates[, 1])  # years of analysis
   
   ## initializing output vectors
-  init = rep(NA, length(year))  # first day of the season
-  end = rep(NA, length(year))  # last day of the season
-  GSL = rep(NA, length(year))  # growing season length 
+  init <- rep(NA_character_, length(year))  # first day of the season
+  end <- rep(NA_character_, length(year))  # last day of the season
+  GSL <- rep(NA_real_, length(year))  # growing season length 
+  
+  # helper to convert a spell index into the position (day of year) marking the end of the spell
+  spell_end_position <- function(block_idx, bin_obj, spell_length = 6) {
+    if (length(block_idx) == 0 || is.na(block_idx) || block_idx <= 0) {
+      return(NA_real_)
+    }
+    preceding_days <- if (block_idx <= 1) 0 else sum(bin_obj$len[seq_len(block_idx - 1)])
+    preceding_days + spell_length
+  }
   
   for (iyear in year) {
     
     ## definition of the year
     if (lat >= 0) {  # northern hemisphere (year: Jan-Dec)
-      year.init = which(dates[, 1] == iyear & dates[, 2] == 1 & dates[, 3] == 1)
-      year.end = which(dates[, 1] == iyear & dates[, 2] == 12 & dates[, 3] == 31)
+      year.init <- which(dates[, 1] == iyear & dates[, 2] == 1 & dates[, 3] == 1)
+      year.end <- which(dates[, 1] == iyear & dates[, 2] == 12 & dates[, 3] == 31)
     } else {  # southern hemisphere (year: Jul-Jun)
-      year.init = which(dates[, 1] == iyear & dates[, 2] == 7 & dates[, 3] == 1)
-      year.end = which(dates[, 1] == iyear + 1 & dates[, 2] == 6 & dates[, 3] == 30)
+      year.init <- which(dates[, 1] == iyear & dates[, 2] == 7 & dates[, 3] == 1)
+      year.end <- which(dates[, 1] == iyear + 1 & dates[, 2] == 6 & dates[, 3] == 30)
     }
     
     if (length(year.init) > 0 && length(year.end) > 0) {  # checking for complete year
-      ind.year = year.init:year.end;  nday = length(ind.year)
-      dates.year = dates[ind.year, ]
+      ind.year <- year.init:year.end
+      nday <- length(ind.year)
+      dates.year <- dates[ind.year, , drop = FALSE]
       
       ## tm in year
-      tm.year = tm[ind.year]
-      rm(ind.year)
+      tm.year <- tm[ind.year]
       
       if (lat >= 0) {  # northern hemisphere (index determining 1-Jul)
-        ind.mid.year = which(dates.year[, 1] == iyear & dates.year[, 2] == 7 & dates.year[, 3] == 1)
+        ind.mid.year <- which(dates.year[, 1] == iyear & dates.year[, 2] == 7 & dates.year[, 3] == 1)
       } else {  # southern hemisphere (index determining 1-Jan)
-        ind.mid.year  = which(dates.year[, 1] == iyear & dates.year[, 2] == 1 & dates.year[, 3] == 1)
+        ind.mid.year <- which(dates.year[, 1] == iyear & dates.year[, 2] == 1 & dates.year[, 3] == 1)
       }
+      if (length(ind.mid.year) == 0) {
+        next
+      }
+      ind.mid.year <- ind.mid.year[1]
       
-      if (100*sum(is.na(tm.year))/nday < pnan) {  # asking for a minimum of non-missing data for computing the index 
+      if (100 * sum(is.na(tm.year)) / nday < pnan) {  # asking for a minimum of non-missing data for computing the index 
         
         ## first 6-day spell with tm>5degC (within the first half of the year)
-        binwarm = binSpell(tm.year > 5)
-        indblockwarm = which(binwarm$val & (binwarm$len >= 6))[1]
-        if ((length(indblockwarm) != 0) && (!is.na(indblockwarm))) {
-          aux.ind.dinit = sum(binwarm$len[1:(indblockwarm-1)]) + 6  # end of first 6-day spell with tm>5degC
-          if (aux.ind.dinit < ind.mid.year) {
-            dinit = aux.ind.dinit
+        binwarm <- binSpell(tm.year > 5)
+        warm_spells <- which(binwarm$val & (binwarm$len >= 6))
+        if (length(warm_spells) > 0) {
+          aux.ind.dinit <- spell_end_position(warm_spells[1], binwarm)
+          if (!is.na(aux.ind.dinit) && aux.ind.dinit < ind.mid.year) {
+            dinit <- aux.ind.dinit
           } else {
-            dinit = NA
+            dinit <- NA_real_
           }
         } else {
-          dinit = NA
+          dinit <- NA_real_
         }
         
         ## first 6-day spell with tm<5degC (within the second half of the year)
-        bincold = binSpell(tm.year < 5)
-        indblockcold = which(bincold$val & (bincold$len >= 6))
-        if (length(indblockcold) == 0) {
-          indblockcold = NA
-        }
-        if ((length(indblockcold) != 0) && (!is.na(indblockcold))) {
-          aux.ind.dend = c()
-          for (j in indblockcold){
-            aux.ind.dend[indblockcold == j] = sum(binwarm$len[1:(j-1)]) + 6  # end of 6-day spells with tm<5degC
-          }
-          ind.dend = which(aux.ind.dend > ind.mid.year)[1]
-          if (length(ind.dend) != 0 && (!is.na(ind.dend))) {
-            dend = aux.ind.dend[ind.dend]  
+        bincold <- binSpell(tm.year < 5)
+        cold_spells <- which(bincold$val & (bincold$len >= 6))
+        if (length(cold_spells) > 0) {
+          cold_spell_ends <- vapply(cold_spells, spell_end_position, numeric(1), bin_obj = bincold)
+          cold_after_mid <- cold_spell_ends[cold_spell_ends > ind.mid.year]
+          if (length(cold_after_mid) > 0) {
+            dend <- cold_after_mid[1]
           } else {
-            dend = NA
+            dend <- NA_real_
           }
         } else {
-          dend = NA
+          dend <- NA_real_
         }
         
-        init[which(year == iyear)] = sprintf("%04d-%02d-%02d", dates.year[dinit, 1], dates.year[dinit, 2], dates.year[dinit, 3])  # first day of the season
-        end[which(year == iyear)] = sprintf("%04d-%02d-%02d", dates.year[dend, 1], dates.year[dend, 2], dates.year[dend, 3])  # last day of the season
-        GSL[which(year == iyear)] = dend - dinit  # growing season length 
+        if (!is.na(dinit) && !is.na(dend)) {
+          init[year == iyear] <- sprintf("%04d-%02d-%02d", dates.year[dinit, 1], dates.year[dinit, 2], dates.year[dinit, 3])  # first day of the season
+          end[year == iyear] <- sprintf("%04d-%02d-%02d", dates.year[dend, 1], dates.year[dend, 2], dates.year[dend, 3])  # last day of the season
+          GSL[year == iyear] <- dend - dinit  # growing season length 
+        }
       }
     } else {
       message(sprintf("... year %d not complete ...", iyear))
@@ -190,11 +199,11 @@ gsl <- function(tm, dates, lat, pnan = 25) {
   }
   
   # output list
-  index = list()
-  index$year = year
-  index$init = init
-  index$end = end
-  index$GSL = GSL
+  index <- list()
+  index$year <- year
+  index$init <- init
+  index$end <- end
+  index$GSL <- GSL
   return(index)
 }
 #index = gsl(tm, dates, lat)  # call to the function

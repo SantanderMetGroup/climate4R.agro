@@ -150,6 +150,9 @@ if (getRversion() >= "2.15.1") {
   ))
 }
 
+#' @title Agroclimatic Index Calculation for Grid Data
+#' @description Calculate agroclimatic indices from climate grid data
+#' @export
 agroindexGrid <- function(index.code,
                           tn = NULL,
                           tx = NULL,
@@ -271,15 +274,49 @@ agroindexGrid <- function(index.code,
         return(arr[, l, lo])
     }
     
+    # Helper function to safely drop dimensions from a grid
+    # Only drops dimensions that actually exist to avoid warnings
+    safe_redim_drop <- function(grid, drop_member = TRUE, drop_loc = TRUE) {
+        if (is.null(grid)) return(NULL)
+        
+        # Check which dimensions exist before trying to drop them
+        grid_dims <- tryCatch({
+            get_shape(grid)
+        }, error = function(e) NULL)
+        
+        # Build redim arguments based on existing dimensions
+        redim_args <- list()
+        if (!is.null(grid_dims)) {
+            # Only drop dimensions that exist
+            if (drop_member && "member" %in% names(grid_dims)) {
+                redim_args[["member"]] <- FALSE
+            }
+            if (drop_loc && "loc" %in% names(grid_dims)) {
+                redim_args[["loc"]] <- FALSE
+            }
+        } else {
+            # Fallback: try to drop requested dimensions (may generate warning)
+            if (drop_member) redim_args[["member"]] <- FALSE
+            if (drop_loc) redim_args[["loc"]] <- FALSE
+        }
+        
+        if (length(redim_args) > 0) {
+            do.call(redim_tr, c(list(grid), redim_args))
+        } else {
+            grid
+        }
+    }
+    
     # Helper function to extract member grid and remove member dimension
     # Returns grid with 3D Data array: (time x lat x lon)
     extract_member_grid <- function(grid, member_idx, n_mem) {
         if (is.null(grid)) return(NULL)
+        
         if (n_mem > 1) {
-            result <- redim_tr(subset_grid(grid, members = member_idx, drop = TRUE),
-                               loc = FALSE, member = FALSE)
+            grid_subset <- subset_grid(grid, members = member_idx, drop = TRUE)
+            result <- safe_redim_drop(grid_subset, drop_member = TRUE, drop_loc = TRUE)
         } else {
-            result <- redim_tr(grid, loc = FALSE, member = FALSE)
+            result <- safe_redim_drop(grid, drop_member = TRUE, drop_loc = TRUE)
         }
 
         # Ensure member dimension is actually removed from Data array
@@ -583,7 +620,7 @@ agroindexGrid <- function(index.code,
         
         # Check spatial consistency and interpolate if needed
         refgrid <- get_grid(grid.list[[1]])
-        indinterp <- which(isFALSE(unlist(lapply(2:length(grid.list), function(i) 
+        indinterp <- which(isFALSE(unlist(lapply(seq_along(grid.list)[-1], function(i) 
             identical(refgrid, get_grid(grid.list[[i]]))))))
         
         if (length(indinterp) > 0) {
@@ -639,23 +676,51 @@ agroindexGrid <- function(index.code,
     fao_fun_loaded <- NULL
     computeET0_loaded <- NULL
     binSpell_loaded <- NULL
+    tier1_fun_loaded <- NULL
+    tier1_index_fun_loaded <- NULL
+    yearStartEnd_loaded <- NULL
     
-    # Pre-load agroindexFAO function if needed (for FAO agronomic indices)
-    if (metadata$indexfun == "agroindexFAO") {
-        fao_fun_loaded <- agroindexFAO
-        computeET0_loaded <- tryCatch({
-            get("computeET0", mode = "function", inherits = TRUE)
+    # Tier1 indices that need special function exports (defined once)
+    tier1_indices <- c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")
+    is_tier1 <- index.code %in% tier1_indices
+    is_cdi_cei <- index.code %in% c("CDI", "CEI")
+    is_fao_agro <- metadata$indexfun == "agroindexFAO"
+    
+    # Helper function to load functions efficiently (avoids repetitive tryCatch)
+    load_function <- function(fun_name, required = TRUE) {
+        fun <- tryCatch({
+            get(fun_name, mode = "function", inherits = TRUE)
         }, error = function(...) {
-            if ("climate4R.agro" %in% loadedNamespaces()) {
-                utils::getFromNamespace("computeET0", ns = "climate4R.agro")
+            ns_loaded <- "climate4R.agro" %in% loadedNamespaces()
+            if (ns_loaded) {
+                utils::getFromNamespace(fun_name, ns = "climate4R.agro")
+            } else if (required) {
+                stop("Function '", fun_name, "' not found. Please ensure 'climate4R.agro' is installed and loaded.")
             } else {
-                stop("computeET0 function not found. Please ensure 'climate4R.agro' is installed and loaded.")
+                NULL
             }
         })
-        binSpell_loaded <- binSpell
+        fun
     }
     
-    if (index.code %in% c("CDI", "CEI")) {
+    # Pre-load functions only if needed (avoid redundant loading)
+    if (is_tier1) {
+        tier1_fun_loaded <- load_function("agroindexFAO_tier1")
+        tier1_index_fun_loaded <- load_function(index.code)
+        binSpell_loaded <- load_function("binSpell")
+        yearStartEnd_loaded <- load_function("yearStartEnd")
+    }
+    
+    if (is_fao_agro) {
+        fao_fun_loaded <- agroindexFAO
+        computeET0_loaded <- load_function("computeET0")
+        # binSpell may already be loaded for Tier1, avoid redundant loading
+        if (is.null(binSpell_loaded)) {
+            binSpell_loaded <- load_function("binSpell")
+        }
+    }
+    
+    if (is_cdi_cei) {
         cdi_cei_fun_loaded <- if (index.code == "CDI") CDI else CEI
         build_seasons_map_loaded <- build_seasons_map
     }
@@ -663,13 +728,6 @@ agroindexGrid <- function(index.code,
     member_parallel_active <- FALSE
     if (n.mem > 1) {
         effective_member_parallel <- isTRUE(parallel) && allow_member_parallel
-        if (!allow_member_parallel && isTRUE(parallel)) {
-            tryCatch({
-                message("[", Sys.time(), "] Member-level parallelization disabled for FAO agronomic indices; using per-member serial execution")
-            }, error = function(e) {
-                # Ignore connection write errors
-            })
-        }
         parallel.pars <- parallel_check(effective_member_parallel, max.ncores, ncores)
         apply_fun <- select_par_pply_fun(parallel.pars, .pplyFUN = "lapply")
         member_parallel_active <- isTRUE(parallel.pars$hasparallel)
@@ -691,18 +749,86 @@ agroindexGrid <- function(index.code,
 
             if (!is.null(parallel.pars$cl)) {
                 cluster_load_packages(parallel.pars$cl, c("transformeR", "abind", "climate4R.agro"))
-                if (metadata$indexfun == "agroindexFAO") {
+                
+                # Export functions to parallel workers (only what's needed)
+                verify_funs_list <- character(0)
+                
+                if (is_tier1) {
+                    # Export Tier1 functions to parallel workers
+                    if (is.null(tier1_fun_loaded) || is.null(tier1_index_fun_loaded) || 
+                        is.null(binSpell_loaded) || is.null(yearStartEnd_loaded)) {
+                        stop("Tier1 functions failed to load. Please ensure 'climate4R.agro' is properly installed.")
+                    }
+                    # For GSL (and other Tier1 indices that use binSpell), ensure binSpell is available
+                    # Export binSpell first so it's in .GlobalEnv before gsl is exported
+                    cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
+                    cluster_assign_function(parallel.pars$cl, "yearStartEnd", yearStartEnd_loaded)
+                    cluster_assign_function(parallel.pars$cl, "agroindexFAO_tier1", tier1_fun_loaded)
+                    
+                    # For gsl specifically: create a wrapper that ensures binSpell is accessible
+                    # When gsl calls binSpell internally, it needs to find it in its environment
+                    # Since exported functions may lose their namespace context, we wrap gsl
+                    if (index.code == "gsl") {
+                        # Create a wrapper function with binSpell in its closure
+                        # This ensures that when gsl calls binSpell, it can find it
+                        gsl_wrapper <- (function(original_gsl, binSpell_fn) {
+                            function(tm, dates, lat, pnan = 25) {
+                                # Ensure binSpell is in .GlobalEnv as fallback
+                                if (!exists("binSpell", mode = "function", envir = .GlobalEnv, inherits = FALSE)) {
+                                    assign("binSpell", binSpell_fn, envir = .GlobalEnv)
+                                }
+                                # Try to set binSpell in gsl's environment before calling
+                                gsl_env <- environment(original_gsl)
+                                if (!is.null(gsl_env)) {
+                                    tryCatch({
+                                        assign("binSpell", binSpell_fn, envir = gsl_env, inherits = FALSE)
+                                    }, error = function(e) {
+                                        # If assignment fails, binSpell is still in .GlobalEnv
+                                    })
+                                }
+                                # Call original gsl function
+                                original_gsl(tm = tm, dates = dates, lat = lat, pnan = pnan)
+                            }
+                        })(tier1_index_fun_loaded, binSpell_loaded)
+                        # Export wrapper instead of original
+                        cluster_assign_function(parallel.pars$cl, index.code, gsl_wrapper)
+                    } else {
+                        cluster_assign_function(parallel.pars$cl, index.code, tier1_index_fun_loaded)
+                    }
+                    
+                    # Ensure binSpell is accessible in .GlobalEnv on all workers (for gsl and other functions)
+                    parallel::clusterEvalQ(parallel.pars$cl, {
+                        if (!exists("binSpell", mode = "function", envir = .GlobalEnv, inherits = FALSE)) {
+                            if ("climate4R.agro" %in% loadedNamespaces()) {
+                                assign("binSpell", 
+                                       utils::getFromNamespace("binSpell", ns = "climate4R.agro"),
+                                       envir = .GlobalEnv)
+                            }
+                        }
+                    })
+                    verify_funs_list <- c(verify_funs_list, "agroindexFAO_tier1", index.code, "binSpell", "yearStartEnd")
+                }
+                
+                if (is_fao_agro) {
                     cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
                     cluster_assign_function(parallel.pars$cl, "computeET0", computeET0_loaded)
-                    cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
-                    cluster_verify_functions(parallel.pars$cl,
-                                             c("agroindexFAO", "computeET0", "binSpell"))
+                    verify_funs_list <- c(verify_funs_list, "agroindexFAO", "computeET0")
+                    # binSpell only exported once if needed by both Tier1 and FAO
+                    if (!is.null(binSpell_loaded) && !("binSpell" %in% verify_funs_list)) {
+                        cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
+                        verify_funs_list <- c(verify_funs_list, "binSpell")
+                    }
                 }
-                if (index.code %in% c("CDI", "CEI")) {
+                
+                if (is_cdi_cei) {
                     cluster_assign_function(parallel.pars$cl, index.code, cdi_cei_fun_loaded)
                     cluster_assign_function(parallel.pars$cl, "build_seasons_map", build_seasons_map_loaded)
-                    cluster_verify_functions(parallel.pars$cl,
-                                             c(index.code, "build_seasons_map"))
+                    verify_funs_list <- c(verify_funs_list, index.code, "build_seasons_map")
+                }
+                
+                # Verify all functions at once (more efficient)
+                if (length(verify_funs_list) > 0) {
+                    cluster_verify_functions(parallel.pars$cl, verify_funs_list)
                 }
             }
         }
@@ -833,6 +959,39 @@ agroindexGrid <- function(index.code,
         result <- tryCatch({
             # Inner tryCatch for the actual computation
             tryCatch({
+            # Cache Tier1 index function lookup once per member (avoids repeated get() calls in loops)
+            tier1_index_fun_cached <- NULL
+            if (is_tier1 && n.mem > 1 && member_parallel_active) {
+                # Try multiple methods to find the function in parallel workers
+                tier1_index_fun_cached <- tryCatch({
+                    # First try: get from global environment (where cluster_assign_function exports it)
+                    get(index.code, envir = .GlobalEnv, mode = "function", inherits = FALSE)
+                }, error = function(e1) {
+                    tryCatch({
+                        # Second try: get with inheritance (might be in parent env)
+                        get(index.code, mode = "function", inherits = TRUE)
+                    }, error = function(e2) {
+                        tryCatch({
+                            # Third try: get from namespace
+                            if ("climate4R.agro" %in% loadedNamespaces()) {
+                                utils::getFromNamespace(index.code, ns = "climate4R.agro")
+                            } else {
+                                NULL
+                            }
+                        }, error = function(e3) {
+                            NULL
+                        })
+                    })
+                })
+                # If still NULL, this is a problem - but we'll handle it in the call site
+                if (is.null(tier1_index_fun_cached)) {
+                    # Try one more time with explicit environment search
+                    tier1_index_fun_cached <- tryCatch({
+                        eval(parse(text = index.code), envir = .GlobalEnv)
+                    }, error = function(e) NULL)
+                }
+            }
+            
             # Extract data as 3D arrays (time x lat x lon) following agroclimGrid pattern
             # Use helper function to simplify repetitive code
             aux.tx <- extract_data_array(tx, x, n.mem)
@@ -879,7 +1038,7 @@ agroindexGrid <- function(index.code,
                 dates_differ <- FALSE
                 if (length(dates_list) > 1) {
                     first_dates <- dates_list[[1]]
-                    for (i in 2:length(dates_list)) {
+                    for (i in seq_along(dates_list)[-1]) {
                         if (!identical(first_dates, dates_list[[i]])) {
                             dates_differ <- TRUE
                             break
@@ -989,7 +1148,7 @@ agroindexGrid <- function(index.code,
             dims_list <- dims_list[!sapply(dims_list, is.null)]
             if (length(dims_list) > 1) {
                     ref_dims <- dims_list[[1]]
-                for (i in 2:length(dims_list)) {
+                for (i in seq_along(dims_list)[-1]) {
                         if (!identical(dims_list[[i]], ref_dims)) {
                             stop("Data arrays have inconsistent dimensions. Expected ",
                                  paste(ref_dims, collapse = " x "), " but got ",
@@ -1020,25 +1179,30 @@ agroindexGrid <- function(index.code,
                     fao_args_static
                 )
                 
-                fao_runner <- if (n.mem > 1) {
+                fao_runner <- if (n.mem > 1 && member_parallel_active) {
+                    # In parallel mode, use the exported function name directly to avoid serialization issues
                     function(args_point) {
                         withCallingHandlers(
                             suppressMessages(suppressWarnings(
-                                do.call(fao_fun_loaded, args_point)
+                                do.call("agroindexFAO", args_point)
                             )),
                             warning = function(w) invokeRestart("muffleWarning"),
                             message = function(m) invokeRestart("muffleMessage")
                         )
                     }
                 } else {
+                    # In serial mode, use the local variable
                     function(args_point) {
                         do.call(fao_fun_loaded, args_point)
                     }
                 }
                 
-                for (lat_idx in seq_len(n_lat)) {
+                # Use lapply instead of nested for loops for better performance
+                # Iterate over latitudes
+                latloop_results <- lapply(seq_len(n_lat), function(lat_idx) {
                     lat_val <- lats[lat_idx]
-                    for (lon_idx in seq_len(n_lon)) {
+                    # Iterate over longitudes
+                    lonloop_results <- lapply(seq_len(n_lon), function(lon_idx) {
                         args_point <- point_base_args
                         args_point$lat <- lat_val
                         if (!is.null(input.arg.list$pr)) args_point$pr <- input.arg.list$pr[, lat_idx, lon_idx]
@@ -1049,13 +1213,21 @@ agroindexGrid <- function(index.code,
                         point_result <- tryCatch({
                             fao_runner(args_point)
                         }, error = function(e) {
-                            error_counter <<- error_counter + 1L
-                            if (is.null(first_error_msg)) {
-                                lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
-                                first_error_msg <<- paste0("lat=", lat_val, ", lon=", lon_val, ": ", e$message)
-                            }
-                            rep(NA_real_, n_years)
+                            # Return error info along with NA result
+                            lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
+                            return(list(result = rep(NA_real_, n_years), 
+                                       error = paste0("lat=", lat_val, ", lon=", lon_val, ": ", e$message),
+                                       is_error = TRUE))
                         })
+
+                        # Handle error return structure
+                        is_error <- is.list(point_result) && !is.null(point_result$is_error) && point_result$is_error
+                        if (is_error) {
+                            error_info <- point_result
+                            point_result <- error_info$result
+                        } else {
+                            error_info <- NULL
+                        }
 
                         if (is.list(point_result) && index.code == "gsl" && "GSL" %in% names(point_result)) {
                             point_result <- point_result$GSL
@@ -1065,27 +1237,52 @@ agroindexGrid <- function(index.code,
                             if (length(point_result) == 1 && is.na(point_result)) {
                                 point_result <- rep(NA_real_, n_years)
                             } else {
-                                error_counter <- error_counter + 1L
-                                if (is.null(first_error_msg)) {
-                                    lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
-                                    first_error_msg <- paste0("lat=", lat_val, ", lon=", lon_val,
-                                                               ": unexpected result length ", length(point_result),
-                                                               " (expected ", n_years, ")")
-                                }
+                                lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
+                                error_msg <- paste0("lat=", lat_val, ", lon=", lon_val,
+                                                   ": unexpected result length ", length(point_result),
+                                                   " (expected ", n_years, ")")
                                 point_result <- rep(NA_real_, n_years)
+                                return(list(result = point_result, error = error_msg, is_error = TRUE))
                             }
                         }
 
-                        if (all(is.na(point_result)) && is.null(first_all_na)) {
+                        # Check for all NA and collect info
+                        all_na_info <- NULL
+                        if (all(is.na(point_result))) {
                             lon_val <- if (!is.null(lons_vec) && length(lons_vec) >= lon_idx) lons_vec[lon_idx] else lon_idx
                             na_counts <- lapply(args_point[c("pr", "tx", "tn", "tm")], function(vec) {
                                 if (is.null(vec)) return(NA_integer_)
                                 sum(is.na(vec))
                             })
-                            first_all_na <- list(lat = lat_val, lon = lon_val, na = na_counts)
+                            all_na_info <- list(lat = lat_val, lon = lon_val, na = na_counts)
                         }
 
-                        result_array[, lat_idx, lon_idx] <- point_result
+                        # Return result with metadata
+                        list(result = point_result, 
+                             error = if (!is.null(error_info)) error_info$error else NULL,
+                             all_na = all_na_info,
+                             is_error = is_error)
+                    })
+                    # Return list of results for this latitude
+                    lonloop_results
+                })
+                
+                # Process results and populate result_array, track errors
+                for (lat_idx in seq_len(n_lat)) {
+                    for (lon_idx in seq_len(n_lon)) {
+                        res <- latloop_results[[lat_idx]][[lon_idx]]
+                        result_array[, lat_idx, lon_idx] <- res$result
+                        
+                        if (!is.null(res$error)) {
+                            error_counter <- error_counter + 1L
+                            if (is.null(first_error_msg)) {
+                                first_error_msg <- res$error
+                            }
+                        }
+                        
+                        if (!is.null(res$all_na) && is.null(first_all_na)) {
+                            first_all_na <- res$all_na
+                        }
                     }
                 }
 
@@ -1172,8 +1369,12 @@ agroindexGrid <- function(index.code,
         base_args_list <- index.arg.list[!names(index.arg.list) %in% c("dates")]
         
         # Error tracking for non-FAO indices
-        error_count <- 0
+    error_count <- 0
         error_display_count <- 0
+        first_error_msg <- NULL
+    first_error_location <- NULL
+    first_error_call <- NULL
+    first_error_trace <- NULL
         
         # Iterate over latitudes
         latloop <- lapply(seq_along(lats), function(l) {
@@ -1201,7 +1402,13 @@ agroindexGrid <- function(index.code,
                         args_clean <- index.arg.list[!names(index.arg.list) %in% c("dates")]
                         args_list <- c(list(df = df, id = "id", start_date = min(df$date)), args_clean)
                         
-                        cdi_cei_fun <- cdi_cei_fun_loaded
+                        # In parallel mode, use the exported function name directly to avoid serialization issues
+                        # In serial mode, use the local variable
+                        cdi_cei_fun <- if (n.mem > 1 && member_parallel_active) {
+                            index.code  # Use the exported function name (CDI or CEI)
+                        } else {
+                            cdi_cei_fun_loaded  # Use local variable in serial mode
+                        }
                         
                         # Call CDI/CEI function - only suppress output for multi-member to avoid connection errors
                         if (n.mem > 1) {
@@ -1333,36 +1540,149 @@ agroindexGrid <- function(index.code,
                         
                         # Call the index function
                         # For tier1 indices, use agroindexFAO_tier1 wrapper which handles function lookup
-                        if (index.code %in% c("gsl", "avg", "nd_thre", "nhw", "dr", "prcptot", "nrd", "lds", "sdii", "prcptot_thre", "ns")) {
-                            args_with_code <- c(list(index.code = index.code), args_list)
-                            index_result <- do.call("agroindexFAO_tier1", args_with_code)
+                        if (is_tier1) {
+                            # In parallel mode, use cached function to avoid repeated lookups
+                            if (n.mem > 1 && member_parallel_active) {
+                                if (!is.null(tier1_index_fun_cached) && is.function(tier1_index_fun_cached)) {
+                                    index_result <- do.call(tier1_index_fun_cached, args_list)
+                                } else {
+                                    # Fallback: try to use agroindexFAO_tier1 if direct function not found
+                                    # This should work since we exported it to workers
+                                    args_with_code <- c(list(index.code = index.code), args_list)
+                                    index_result <- tryCatch({
+                                        do.call("agroindexFAO_tier1", args_with_code)
+                                    }, error = function(e) {
+                                        # Last resort: try to get function again
+                                        fun <- tryCatch({
+                                            get(index.code, mode = "function", inherits = TRUE)
+                                        }, error = function(e2) {
+                                            if ("climate4R.agro" %in% loadedNamespaces()) {
+                                                utils::getFromNamespace(index.code, ns = "climate4R.agro")
+                                            } else {
+                                                stop("Function ", index.code, " not found in parallel worker: ", e$message)
+                                            }
+                                        })
+                                        do.call(fun, args_list)
+                                    })
+                                }
+                            } else {
+                                # In serial mode, use agroindexFAO_tier1 wrapper (works fine)
+                                args_with_code <- c(list(index.code = index.code), args_list)
+                                index_result <- do.call("agroindexFAO_tier1", args_with_code)
+                            }
                         } else {
                             index_result <- do.call(metadata$indexfun, args_list)
                         }
                         
                         # GSL returns a list, extract the GSL component
-                        if (index.code == "gsl" && is.list(index_result)) {
-                            index_result$GSL
+                        if (index.code == "gsl") {
+                            # Ensure index_result is a list with GSL component
+                            if (!is.list(index_result)) {
+                                # If not a list, it's an error - return NAs for all years
+                                gsl_result <- rep(NA_real_, length(ref_years))
+                            } else if (!"GSL" %in% names(index_result)) {
+                                # If list but no GSL component, return NAs for all years
+                                gsl_result <- rep(NA_real_, length(ref_years))
+                            } else {
+                                gsl_result <- index_result$GSL
+                                # Ensure result is a vector with correct length (one value per year)
+                                if (is.null(gsl_result)) {
+                                    # If GSL is NULL, return NAs for all years
+                                    gsl_result <- rep(NA_real_, length(ref_years))
+                                } else if (!is.vector(gsl_result) || !is.numeric(gsl_result)) {
+                                    # If GSL is not a numeric vector, return NAs
+                                    gsl_result <- rep(NA_real_, length(ref_years))
+                                } else if (length(gsl_result) != length(ref_years)) {
+                                    # If length doesn't match, try to align with ref_years
+                                    # gsl function returns values for years in the data, which might differ
+                                    if ("year" %in% names(index_result) && !is.null(index_result$year)) {
+                                        # Map GSL values to ref_years
+                                        gsl_years <- index_result$year
+                                        # Convert gsl_years to character for matching (ref_years is character)
+                                        gsl_years_char <- as.character(gsl_years)
+                                        aligned_result <- rep(NA_real_, length(ref_years))
+                                        # Match ref_years (character) to gsl_years_char
+                                        year_match <- match(ref_years, gsl_years_char)
+                                        valid_match <- !is.na(year_match) & year_match <= length(gsl_result)
+                                        if (any(valid_match)) {
+                                            aligned_result[valid_match] <- gsl_result[year_match[valid_match]]
+                                        }
+                                        gsl_result <- aligned_result
+                                    } else {
+                                        # Can't align, return NAs
+                                        gsl_result <- rep(NA_real_, length(ref_years))
+                                    }
+                                }
+                            }
+                            gsl_result
                         } else {
+                            # For other Tier1 indices, ensure result is a vector
+                            if (is.vector(index_result) && length(index_result) != length(ref_years)) {
+                                # Try to align if possible, otherwise return NAs
+                                if (length(index_result) > 0 && !all(is.na(index_result))) {
+                                    # If result is shorter, pad with NAs; if longer, truncate
+                                    if (length(index_result) < length(ref_years)) {
+                                        result_padded <- rep(NA_real_, length(ref_years))
+                                        result_padded[seq_along(index_result)] <- index_result
+                                        index_result <- result_padded
+                                    } else {
+                                        index_result <- index_result[seq_len(length(ref_years))]
+                                    }
+                                } else {
+                                    index_result <- rep(NA_real_, length(ref_years))
+                                }
+                            }
                             index_result
                         }
                     }
                 }, error = function(e) {
                     error_count <<- error_count + 1
+                    error_msg <- conditionMessage(e)
+                    error_location <- paste0("lat=", lats[l], ", lon=", lons[lo])
+                    error_call <- conditionCall(e)
+                    if (is.null(error_call)) {
+                        error_call_str <- "NULL"
+                    } else {
+                        error_call_str <- paste(deparse(error_call), collapse = "")
+                    }
+                    if (is.null(first_error_trace)) {
+                        first_error_trace <<- capture.output({
+                            traceback_calls <- sys.calls()
+                            print(traceback_calls)
+                        })
+                    }
+                    if (is.null(first_error_call)) {
+                        first_error_call <<- error_call_str
+                    }
+                    
+                    # Store first error for reporting
+                    if (is.null(first_error_msg)) {
+                        first_error_msg <<- error_msg
+                        first_error_location <<- error_location
+                    }
+                    
                     if (error_display_count < MAX_ERROR_DISPLAY) {
-                        # Suppress warning output to avoid connection errors in batch jobs
-                        # Only show warnings for single-member processing
+                        # Show error messages - try to display even in parallel mode (with safe handling)
                         if (n.mem == 1) {
                             tryCatch({
-                                warning("Error at lat=", lats[l], ", lon=", lons[lo], ": ", e$message)
+                                warning("Error at ", error_location, ": ", error_msg)
                             }, error = function(e2) {
                                 # Ignore connection write errors during warning
                             })
+                        } else {
+                            # In parallel mode, try to log first few errors (may fail due to connection issues)
+                            if (error_display_count == 0) {
+                                tryCatch({
+                                    message("[", Sys.time(), "] Member ", x, " - First error at ", error_location, ": ", error_msg)
+                                }, error = function(e2) {
+                                    # Ignore connection write errors in parallel workers
+                                })
+                            }
                         }
                         error_display_count <<- error_display_count + 1
                     }
-                    years <- ref_years
-                    rep(NA, length(years))
+                    # Return NAs with correct length for yearly data
+                    rep(NA_real_, length(ref_years))
                 })
                 
                 return(result)
@@ -1373,8 +1693,24 @@ agroindexGrid <- function(index.code,
         # Report error summary for non-FAO indices
         if (error_count > 0) {
             total_points <- length(lats) * length(lons)
-            err_msg <- paste0("Non-FAO indices: ", error_count, " out of ", total_points, " grid point(s) failed.",
-                              if (error_display_count > 0) " Check earlier warnings for details." else "")
+            err_msg <- paste0("Non-FAO indices: ", error_count, " out of ", total_points, " grid point(s) failed.")
+            if (!is.null(first_error_location) && !is.null(first_error_msg)) {
+                err_msg <- paste0(err_msg, " First error at ", first_error_location, ": ", first_error_msg)
+            } else if (!is.null(first_error_msg)) {
+                err_msg <- paste0(err_msg, " First error: ", first_error_msg)
+            } else if (error_display_count > 0) {
+                err_msg <- paste0(err_msg, " Check earlier warnings for details.")
+            }
+            if (!is.null(first_error_call)) {
+                err_msg <- paste0(err_msg, "\nCall: ", first_error_call)
+            }
+            if (!is.null(first_error_trace)) {
+                err_msg <- paste0(
+                    err_msg,
+                    "\nTraceback snapshot:\n",
+                    paste(first_error_trace, collapse = "\n")
+                )
+            }
             if (n.mem > 1) {
                 stop(err_msg)
             } else {
@@ -1390,9 +1726,48 @@ agroindexGrid <- function(index.code,
         
         # Update dates to match the output time dimension (years for FAO indices)
         n_output_times <- dim(out_array)[1]  # First dimension is time
-        if (n_output_times != length(refDates)) {
-            # FAO tier1 and agronomic indices return yearly values
+        # Tier1 indices (including gsl) always return yearly values, even if n_output_times == length(refDates)
+        # This can happen if there's a bug or if the data happens to have the same number of days as years
+        if (is_tier1) {
+            # FAO tier1 indices always return yearly values
             # Extract unique years and create year boundaries
+            years <- ref_years
+            if (n_output_times == length(years)) {
+                # Create start (Jan 1) and end (Dec 31) for each year
+                start_dates <- as.Date(paste0(years, "-01-01"))
+                end_dates <- as.Date(paste0(years, "-12-31"))
+                if (n.mem == 1 && n_output_times != length(refDates)) {
+                    tryCatch({
+                        message("[", Sys.time(), "] Converting daily dates to yearly dates (", n_output_times, " years)")
+                    }, error = function(e) {
+                        # Ignore connection write errors
+                    })
+                }
+            } else {
+                # Output doesn't match expected number of years - might be an error
+                # Still try to create yearly dates if possible
+                if (n_output_times <= length(years)) {
+                    # Take first n_output_times years
+                    years_subset <- years[seq_len(n_output_times)]
+                    start_dates <- as.Date(paste0(years_subset, "-01-01"))
+                    end_dates <- as.Date(paste0(years_subset, "-12-31"))
+                } else {
+                    # More output times than years - take evenly spaced dates as fallback
+                    indices <- round(seq(1, length(refDates), length.out = n_output_times))
+                    start_dates <- ref_dates_date[indices]
+                    end_dates <- start_dates
+                }
+                if (n.mem == 1) {
+                    tryCatch({
+                        message("[", Sys.time(), "] Warning: Output time steps (", n_output_times, 
+                               ") don't match expected years (", length(years), ")")
+                    }, error = function(e) {
+                        # Ignore connection write errors
+                    })
+                }
+            }
+        } else if (n_output_times != length(refDates)) {
+            # For FAO agronomic indices (non-tier1), check if output matches years
             years <- ref_years
             if (n_output_times == length(years)) {
                 # Create start (Jan 1) and end (Dec 31) for each year
@@ -1478,9 +1853,9 @@ agroindexGrid <- function(index.code,
             if (is.null(refGrid_member)) {
                 # Fallback to refGrid from outer scope
                 refGrid_member <- if (n.mem > 1) {
-                    redim_tr(subset_grid(refGrid, members = x, drop = TRUE), loc = FALSE, member = FALSE)
+                    safe_redim_drop(subset_grid(refGrid, members = x, drop = TRUE), drop_member = TRUE, drop_loc = TRUE)
                 } else {
-                    redim_tr(refGrid, loc = FALSE, member = FALSE)
+                    safe_redim_drop(refGrid, drop_member = TRUE, drop_loc = TRUE)
                 }
             }
             
@@ -1524,9 +1899,9 @@ agroindexGrid <- function(index.code,
                         # Fallback: try to use refGrid from outer scope
                         tryCatch({
                             refGrid_member <- if (n.mem > 1) {
-                                redim_tr(subset_grid(refGrid, members = x, drop = TRUE), loc = FALSE, member = FALSE)
+                                safe_redim_drop(subset_grid(refGrid, members = x, drop = TRUE), drop_member = TRUE, drop_loc = TRUE)
                             } else {
-                                redim_tr(refGrid, loc = FALSE, member = FALSE)
+                                safe_redim_drop(refGrid, drop_member = TRUE, drop_loc = TRUE)
                             }
                         }, error = function(e3) {
                             # If that fails, try to get any available grid
