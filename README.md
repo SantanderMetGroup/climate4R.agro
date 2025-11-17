@@ -65,19 +65,12 @@ library(climate4R.agro)
 gsl_result <- agroindexGrid(
   index.code = "gsl",
   tm = tmean_grid,  # Mean temperature
-  index.arg.list = list(lat = 40),  # Latitude required for GSL
-  time.resolution = "year"
 )
 
 # Calculate Average Temperature with custom period
 avg_result <- agroindexGrid(
   index.code = "avg",
   tm = tmean_grid,
-  index.arg.list = list(
-    year.start = "2000-06-01",
-    year.end = "2000-08-31"
-  ),
-  time.resolution = "year"
 )
 
 # Calculate Number of Heatwaves
@@ -87,8 +80,7 @@ nhw_result <- agroindexGrid(
   index.arg.list = list(
     threshold = 35,  # Temperature threshold in degrees C
     duration = 3     # Minimum duration in days
-  ),
-  time.resolution = "year"
+  )
 )
 
 # Calculate multiple indices
@@ -99,11 +91,10 @@ results <- lapply(indices, function(idx) {
     tx = tx_grid,
     tn = tn_grid,
     pr = pr_grid,
-    tm = tmean_grid,
-    index.arg.list = if (idx == "gsl") list(lat = 40) else list(),
-    time.resolution = "year"
-  )
-})
+    tm = tmean_grid
+    )
+  }
+)
 
 # CDI with custom bounds
 cdi_result <- agroindexGrid(
@@ -131,8 +122,7 @@ nd_thre_result <- agroindexGrid(
   index.arg.list = list(
     threshold = 30,
     direction = "geq"  # "geq" for >=, "leq" for <=
-  ),
-  time.resolution = "year"
+  )
 )
 
 # Length of Dry Spell
@@ -142,8 +132,7 @@ lds_result <- agroindexGrid(
   index.arg.list = list(
     wet.threshold = 1,      # Minimum precipitation for wet day (mm)
     spell.length = "max"    # "max", "mean", or numeric value
-  ),
-  time.resolution = "year"
+  )
 )
 
 # FAO Agronomic Season indices
@@ -151,8 +140,7 @@ agsn_result <- agroindexGrid(
   index.code = "dt_st_rnagsn",
   tx = tx_grid,
   tn = tn_grid,
-  pr = pr_grid,
-  time.resolution = "year"
+  pr = pr_grid
 )
 ```
 
@@ -186,7 +174,7 @@ str(grid_object)
 
 Many indices require additional parameters passed via `index.arg.list`:
 
-- **lat**: Latitude in degrees (required for GSL, optional for others)
+- **lat**: Latitude in degrees (optional)
 - **threshold**: Threshold value for indices like `nd_thre`, `nhw`, `prcptot_thre`
 - **duration**: Duration in days for indices like `nhw`, `ns`
 - **direction**: "geq" or "leq" for `nd_thre` (greater/less than threshold)
@@ -214,6 +202,9 @@ See the help files for individual index functions (e.g., `?gsl`, `?avg`) for com
 - `dplyr` - Data manipulation
 - `magrittr` - Pipe operator
 - `abind` - Array binding
+- `parallel` - Parallel computing utilities
+- `tibble` - Modern data frames
+- `rlang` - Tools for working with R expressions and environments
 
 ## License
 
