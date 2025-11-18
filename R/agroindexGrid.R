@@ -150,6 +150,271 @@ if (getRversion() >= "2.15.1") {
   ))
 }
 
+# Helper: precompute agronomic year windows once per point
+build_fao_year_windows <- function(dates_mat) {
+    if (is.null(dates_mat) || nrow(dates_mat) == 0) {
+        empty <- matrix(NA_integer_, nrow = 0, ncol = 2,
+                        dimnames = list(character(0), c("start", "end")))
+        return(list(years = integer(0), north = empty, south = empty))
+    }
+    years_vec <- as.integer(dates_mat[, 1])
+    months_vec <- as.integer(dates_mat[, 2])
+    days_vec <- as.integer(dates_mat[, 3])
+    unique_years <- unique(years_vec)
+    n_years <- length(unique_years)
+    make_bounds_matrix <- function() {
+        matrix(NA_integer_, nrow = n_years, ncol = 2,
+               dimnames = list(as.character(unique_years), c("start", "end")))
+    }
+    north_bounds <- make_bounds_matrix()
+    south_bounds <- make_bounds_matrix()
+    for (i in seq_len(n_years)) {
+        yy <- unique_years[i]
+        yy_chr <- as.character(yy)
+        start_idx <- which(years_vec == yy & months_vec == 1L & days_vec == 1L)
+        end_idx <- which(years_vec == yy & months_vec == 12L & days_vec == 31L)
+        if (length(start_idx) > 0 && length(end_idx) > 0) {
+            start_val <- start_idx[1]
+            end_val <- end_idx[length(end_idx)]
+            if (start_val <= end_val) {
+                north_bounds[yy_chr, ] <- c(start_val, end_val)
+            }
+        }
+        south_start <- which(years_vec == yy & months_vec == 7L & days_vec == 1L)
+        south_end <- which(years_vec == (yy + 1L) & months_vec == 6L & days_vec == 30L)
+        if (length(south_start) > 0 && length(south_end) > 0) {
+            start_val <- south_start[1]
+            end_val <- south_end[length(south_end)]
+            if (start_val <= end_val) {
+                south_bounds[yy_chr, ] <- c(start_val, end_val)
+            }
+        }
+    }
+    list(years = unique_years, north = north_bounds, south = south_bounds)
+}
+
+# Helper: select per-year apply function (serial vs future.apply)
+select_year_apply_fun <- function(enable_parallel) {
+    if (!isTRUE(enable_parallel)) {
+        return(function(X, FUN) lapply(X, FUN))
+    }
+    if (!requireNamespace("future.apply", quietly = TRUE)) {
+        warning("future.apply package not available; falling back to serial agronomic year loop.", call. = FALSE)
+        return(function(X, FUN) lapply(X, FUN))
+    }
+    function(X, FUN) future.apply::future_lapply(X, FUN, future.seed = TRUE)
+}
+
+# Optimised FAO agronomic indices for single grid point
+agroindexFAO_fast <- function(lat, dates, index.code,
+                              pr = NULL, tx = NULL, tn = NULL, tm = NULL,
+                              pnan = 25, shc = 100, rndy = 2.5,
+                              rnlg = 50, txh = 30, tnh = 18,
+                              year_windows = NULL, parallel_years = FALSE) {
+    if (is.null(year_windows)) {
+        year_windows <- build_fao_year_windows(dates)
+    }
+    year <- year_windows$years
+    n_years <- length(year)
+    if (n_years == 0) {
+        stop("No agronomic years available for FAO computation.")
+    }
+    if (is.null(pr) || is.null(tx) || is.null(tn)) {
+        stop("pr, tx and tn vectors are required for FAO agronomic indices.")
+    }
+    if (is.null(tm)) {
+        tm <- (tx + tn) / 2
+    }
+    tm <- as.numeric(tm)
+    et0_full <- computeET0(lat, dates, tx, tn)
+    global_et0_mean <- mean(et0_full, na.rm = TRUE)
+    hemisphere_bounds <- if (lat >= 0) year_windows$north else year_windows$south
+    if (nrow(hemisphere_bounds) != n_years) {
+        stop("Mismatch between agronomic year windows and available data.")
+    }
+    dt_st_rnagsn <- rep(NA_real_, n_years)
+    nm_flst_rnagsn <- rep(NA_real_, n_years)
+    dt_fnst_rnagsn <- rep(NA_real_, n_years)
+    dt_ed_rnagsn <- rep(NA_real_, n_years)
+    dl_agsn <- rep(NA_real_, n_years)
+    out <- rep(NA_real_, n_years)
+    apply_year_fun <- select_year_apply_fun(parallel_years)
+    year_results <- apply_year_fun(seq_len(n_years), function(idx_year) {
+        res <- list(dt_st = NA_real_, nm_fs = NA_real_, dt_fn = NA_real_,
+                    dt_ed = NA_real_, dl = NA_real_, out = NA_real_)
+        bounds <- hemisphere_bounds[idx_year, ]
+        if (any(is.na(bounds))) {
+            return(res)
+        }
+        start_idx <- bounds[1]
+        end_idx <- bounds[2]
+        if (start_idx > end_idx) {
+            return(res)
+        }
+        ind_year <- seq.int(start_idx, end_idx)
+        nday <- length(ind_year)
+        pr_year <- pr[ind_year]
+        tx_year <- tx[ind_year]
+        tn_year <- tn[ind_year]
+        tm_year <- tm[ind_year]
+        missing_pct <- max(c(
+            100 * sum(is.na(pr_year)) / nday,
+            100 * sum(is.na(tx_year)) / nday,
+            100 * sum(is.na(tn_year)) / nday
+        ), na.rm = TRUE)
+        if (is.na(missing_pct) || missing_pct >= pnan) {
+            return(res)
+        }
+        ET0 <- et0_full[ind_year]
+        et0_mean <- mean(ET0, na.rm = TRUE)
+        if (is.na(et0_mean)) {
+            et0_mean <- global_et0_mean
+        }
+        if (is.na(et0_mean)) {
+            et0_mean <- 0
+        }
+        ET0[is.na(ET0)] <- et0_mean
+        zero_mask <- which(ET0 == 0)
+        if (length(zero_mask) > 0) {
+            replacement <- if (!is.na(et0_mean) && et0_mean > 0) et0_mean else global_et0_mean
+            if (is.na(replacement)) replacement <- 0
+            ET0[zero_mask] <- replacement
+        }
+        pr_year_WSC <- pr_year
+        pr_year_WSC[pr_year_WSC > rnlg] <- rnlg
+        pr_year_WSC[is.na(pr_year_WSC)] <- 0
+        WSC <- rep(NA_real_, nday)
+        aux_WSC <- pr_year_WSC[1] - ET0[1]
+        if (!is.na(aux_WSC) && aux_WSC < 0) {
+            aux_WSC <- 0
+        } else if (!is.na(aux_WSC) && aux_WSC > shc) {
+            aux_WSC <- shc
+        }
+        WSC[1] <- aux_WSC
+        if (nday > 1) {
+            for (iday in 2:nday) {
+                aux_WSC <- WSC[iday - 1] + pr_year_WSC[iday] - ET0[iday]
+                if (!is.na(aux_WSC) && aux_WSC < 0) {
+                    aux_WSC <- 0
+                } else if (!is.na(aux_WSC) && aux_WSC > shc) {
+                    aux_WSC <- shc
+                }
+                WSC[iday] <- aux_WSC
+            }
+        }
+        potSAG <- which(WSC > 0.25 * shc & WSC > 20)
+        if (length(potSAG) == 0) {
+            return(res)
+        }
+        dt_st_val <- potSAG[1]
+        res$dt_st <- dt_st_val
+        fSAG <- potSAG[1]
+        nFS <- 0L
+        repeat {
+            indW <- seq.int(fSAG + 1L, min(fSAG + 30L, nday))
+            if (length(indW) == 0 || max(indW) > nday) {
+                break
+            }
+            bindWSC <- WSC[indW]
+            bindWSC[bindWSC > 0] <- 1
+            lv.spell <- binSpell(bindWSC)
+            if (sum(lv.spell$len[na.omit(lv.spell$val == 0)] >= 5) >= 1) {
+                nFS <- nFS + 1L
+                aux_idx <- which(lv.spell$val == 0 & lv.spell$len >= 5)[1]
+                candidate <- fSAG + sum(lv.spell$len[seq_len(aux_idx)]) + 1L
+                if (candidate < max(potSAG, na.rm = TRUE)) {
+                    next_pot <- potSAG[potSAG >= candidate]
+                    if (length(next_pot) == 0) {
+                        break
+                    }
+                    fSAG <- next_pot[1]
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+        res$nm_fs <- nFS
+        endings <- tryCatch({
+            indW <- seq.int(fSAG + 1L, min(fSAG + 30L, nday))
+            bindWSC <- WSC[indW]
+            bindWSC[bindWSC > 0] <- 1
+            lv.spell <- binSpell(bindWSC)
+            if (sum(lv.spell$len[lv.spell$val == 0] >= 1) >= 1) {
+                list(dt_fnst = NA_real_, dt_ed = NA_real_)
+            } else {
+                dt_fnst <- fSAG
+                aux_idx <- which(lv.spell$val == 1)
+                if (length(aux_idx) == 0) {
+                    list(dt_fnst = dt_fnst, dt_ed = nday)
+                } else {
+                    aux_last <- aux_idx[length(aux_idx)]
+                    seq_start <- fSAG + sum(lv.spell$len[seq_len(aux_last)])
+                    if (seq_start > nday) seq_start <- nday
+                    auxbindWSC <- WSC[seq.int(seq_start, nday)]
+                    auxbindWSC[auxbindWSC > 0] <- 1
+                    aux_lv <- binSpell(auxbindWSC)
+                    indEAS <- which(aux_lv$val == 0 & aux_lv$len >= 5)
+                    if (length(indEAS) > 0) {
+                        dt_ed <- fSAG + sum(lv.spell$len[seq_len(aux_last)]) - 1 +
+                            sum(aux_lv$len[seq_len(indEAS[1] - 1)]) + 1
+                    } else {
+                        dt_ed <- nday
+                    }
+                    list(dt_fnst = dt_fnst, dt_ed = dt_ed)
+                }
+            }
+        }, error = function(...) {
+            list(dt_fnst = NA_real_, dt_ed = NA_real_)
+        })
+        res$dt_fn <- endings$dt_fnst
+        res$dt_ed <- endings$dt_ed
+        if (!is.na(res$dt_fn) && !is.na(res$dt_ed)) {
+            res$dl <- res$dt_ed - res$dt_fn
+        }
+        if (!is.na(res$dl) && res$dl > 0 &&
+            !(index.code %in% c("dt_st_rnagsn", "nm_flst_rnagsn",
+                                "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn"))) {
+            sAS <- res$dt_fn
+            eAS <- res$dt_ed
+            if (!is.na(sAS) && !is.na(eAS) && eAS > sAS) {
+                idx_seq <- seq.int(sAS, eAS - 1L)
+                pr.AS <- pr_year[idx_seq]
+                tm.AS <- tm_year[idx_seq]
+                tx.AS <- tx_year[idx_seq]
+                tn.AS <- tn_year[idx_seq]
+                res$out <- switch(index.code,
+                    "dc_agsn" = sum(pr.AS >= rndy, na.rm = TRUE),
+                    "rn_agsn" = sum(pr.AS[pr.AS >= rndy], na.rm = TRUE),
+                    "avrn_agsn" = mean(pr.AS[pr.AS >= rndy], na.rm = TRUE),
+                    "dc_rnlg_agsn" = sum(pr.AS >= rnlg, na.rm = TRUE),
+                    "tm_agsn" = mean(tm.AS, na.rm = TRUE),
+                    "dc_txh_agsn" = sum(tx.AS >= txh, na.rm = TRUE),
+                    "dc_tnh_agsn" = sum(tn.AS >= tnh, na.rm = TRUE),
+                    NA_real_)
+            }
+        }
+        res
+    })
+    dt_st_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_st")
+    nm_flst_rnagsn <- vapply(year_results, `[[`, numeric(1), "nm_fs")
+    dt_fnst_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_fn")
+    dt_ed_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_ed")
+    dl_agsn <- vapply(year_results, `[[`, numeric(1), "dl")
+    out <- vapply(year_results, `[[`, numeric(1), "out")
+    if (index.code %in% c("dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn",
+                          "dt_ed_rnagsn", "dl_agsn")) {
+        return(switch(index.code,
+                      "dt_st_rnagsn" = dt_st_rnagsn,
+                      "nm_flst_rnagsn" = nm_flst_rnagsn,
+                      "dt_fnst_rnagsn" = dt_fnst_rnagsn,
+                      "dt_ed_rnagsn" = dt_ed_rnagsn,
+                      "dl_agsn" = dl_agsn))
+    }
+    out
+}
+
 #' @title Agroclimatic Index Calculation for Grid Data
 #' @description Calculate agroclimatic indices from climate grid data
 #' @export
@@ -540,6 +805,272 @@ agroindexGrid <- function(index.code,
         if (station_flag) combined <- redim_tr(combined, drop = FALSE, loc = TRUE, member = FALSE)
         invisible(combined)
     }
+    
+
+    # Helper: precompute agronomic year windows once per point
+    build_fao_year_windows <- function(dates_mat) {
+        if (is.null(dates_mat) || nrow(dates_mat) == 0) {
+            empty <- matrix(NA_integer_, nrow = 0, ncol = 2,
+                            dimnames = list(character(0), c("start", "end")))
+            return(list(years = integer(0), north = empty, south = empty))
+        }
+        years_vec <- as.integer(dates_mat[, 1])
+        months_vec <- as.integer(dates_mat[, 2])
+        days_vec <- as.integer(dates_mat[, 3])
+        unique_years <- unique(years_vec)
+        n_years <- length(unique_years)
+        make_bounds_matrix <- function() {
+            matrix(NA_integer_, nrow = n_years, ncol = 2,
+                   dimnames = list(as.character(unique_years), c("start", "end")))
+        }
+        north_bounds <- make_bounds_matrix()
+        south_bounds <- make_bounds_matrix()
+        for (i in seq_len(n_years)) {
+            yy <- unique_years[i]
+            yy_chr <- as.character(yy)
+            start_idx <- which(years_vec == yy & months_vec == 1L & days_vec == 1L)
+            end_idx <- which(years_vec == yy & months_vec == 12L & days_vec == 31L)
+            if (length(start_idx) > 0 && length(end_idx) > 0) {
+                start_val <- start_idx[1]
+                end_val <- end_idx[length(end_idx)]
+                if (start_val <= end_val) {
+                    north_bounds[yy_chr, ] <- c(start_val, end_val)
+                }
+            }
+            south_start <- which(years_vec == yy & months_vec == 7L & days_vec == 1L)
+            south_end <- which(years_vec == (yy + 1L) & months_vec == 6L & days_vec == 30L)
+            if (length(south_start) > 0 && length(south_end) > 0) {
+                start_val <- south_start[1]
+                end_val <- south_end[length(south_end)]
+                if (start_val <= end_val) {
+                    south_bounds[yy_chr, ] <- c(start_val, end_val)
+                }
+            }
+        }
+        list(years = unique_years, north = north_bounds, south = south_bounds)
+    }
+
+    # Helper: select per-year apply function (serial vs future.apply)
+    select_year_apply_fun <- function(enable_parallel) {
+        if (!isTRUE(enable_parallel)) {
+            return(function(X, FUN) lapply(X, FUN))
+        }
+        if (!requireNamespace("future.apply", quietly = TRUE)) {
+            warning("future.apply package not available; falling back to serial agronomic year loop.", call. = FALSE)
+            return(function(X, FUN) lapply(X, FUN))
+        }
+        function(X, FUN) future.apply::future_lapply(X, FUN, future.seed = TRUE)
+    }
+
+    # Optimised FAO agronomic indices for single grid point
+    agroindexFAO_fast <- function(lat, dates, index.code,
+                                  pr = NULL, tx = NULL, tn = NULL, tm = NULL,
+                                  pnan = 25, shc = 100, rndy = 2.5,
+                                  rnlg = 50, txh = 30, tnh = 18,
+                                  year_windows = NULL, parallel_years = FALSE) {
+        if (is.null(year_windows)) {
+            year_windows <- build_fao_year_windows(dates)
+        }
+        year <- year_windows$years
+        n_years <- length(year)
+        if (n_years == 0) {
+            stop("No agronomic years available for FAO computation.")
+        }
+        if (is.null(pr) || is.null(tx) || is.null(tn)) {
+            stop("pr, tx and tn vectors are required for FAO agronomic indices.")
+        }
+        if (is.null(tm)) {
+            tm <- (tx + tn) / 2
+        }
+        tm <- as.numeric(tm)
+        et0_full <- computeET0(lat, dates, tx, tn)
+        global_et0_mean <- mean(et0_full, na.rm = TRUE)
+        hemisphere_bounds <- if (lat >= 0) year_windows$north else year_windows$south
+        if (nrow(hemisphere_bounds) != n_years) {
+            stop("Mismatch between agronomic year windows and available data.")
+        }
+        dt_st_rnagsn <- rep(NA_real_, n_years)
+        nm_flst_rnagsn <- rep(NA_real_, n_years)
+        dt_fnst_rnagsn <- rep(NA_real_, n_years)
+        dt_ed_rnagsn <- rep(NA_real_, n_years)
+        dl_agsn <- rep(NA_real_, n_years)
+        out <- rep(NA_real_, n_years)
+        apply_year_fun <- select_year_apply_fun(parallel_years)
+        year_results <- apply_year_fun(seq_len(n_years), function(idx_year) {
+            res <- list(dt_st = NA_real_, nm_fs = NA_real_, dt_fn = NA_real_,
+                        dt_ed = NA_real_, dl = NA_real_, out = NA_real_)
+            bounds <- hemisphere_bounds[idx_year, ]
+            if (any(is.na(bounds))) {
+                return(res)
+            }
+            start_idx <- bounds[1]
+            end_idx <- bounds[2]
+            if (start_idx > end_idx) {
+                return(res)
+            }
+            ind_year <- seq.int(start_idx, end_idx)
+            nday <- length(ind_year)
+            pr_year <- pr[ind_year]
+            tx_year <- tx[ind_year]
+            tn_year <- tn[ind_year]
+            tm_year <- tm[ind_year]
+            missing_pct <- max(c(
+                100 * sum(is.na(pr_year)) / nday,
+                100 * sum(is.na(tx_year)) / nday,
+                100 * sum(is.na(tn_year)) / nday
+            ), na.rm = TRUE)
+            if (is.na(missing_pct) || missing_pct >= pnan) {
+                return(res)
+            }
+            ET0 <- et0_full[ind_year]
+            et0_mean <- mean(ET0, na.rm = TRUE)
+            if (is.na(et0_mean)) {
+                et0_mean <- global_et0_mean
+            }
+            if (is.na(et0_mean)) {
+                et0_mean <- 0
+            }
+            ET0[is.na(ET0)] <- et0_mean
+            zero_mask <- which(ET0 == 0)
+            if (length(zero_mask) > 0) {
+                replacement <- if (!is.na(et0_mean) && et0_mean > 0) et0_mean else global_et0_mean
+                if (is.na(replacement)) replacement <- 0
+                ET0[zero_mask] <- replacement
+            }
+            pr_year_WSC <- pr_year
+            pr_year_WSC[pr_year_WSC > rnlg] <- rnlg
+            pr_year_WSC[is.na(pr_year_WSC)] <- 0
+            WSC <- rep(NA_real_, nday)
+            aux_WSC <- pr_year_WSC[1] - ET0[1]
+            if (!is.na(aux_WSC) && aux_WSC < 0) {
+                aux_WSC <- 0
+            } else if (!is.na(aux_WSC) && aux_WSC > shc) {
+                aux_WSC <- shc
+            }
+            WSC[1] <- aux_WSC
+            if (nday > 1) {
+                for (iday in 2:nday) {
+                    aux_WSC <- WSC[iday - 1] + pr_year_WSC[iday] - ET0[iday]
+                    if (!is.na(aux_WSC) && aux_WSC < 0) {
+                        aux_WSC <- 0
+                    } else if (!is.na(aux_WSC) && aux_WSC > shc) {
+                        aux_WSC <- shc
+                    }
+                    WSC[iday] <- aux_WSC
+                }
+            }
+            potSAG <- which(WSC > 0.25 * shc & WSC > 20)
+            if (length(potSAG) == 0) {
+                return(res)
+            }
+            dt_st_val <- potSAG[1]
+            res$dt_st <- dt_st_val
+            fSAG <- potSAG[1]
+            nFS <- 0L
+            repeat {
+                indW <- seq.int(fSAG + 1L, min(fSAG + 30L, nday))
+                if (length(indW) == 0 || max(indW) > nday) {
+                    break
+                }
+                bindWSC <- WSC[indW]
+                bindWSC[bindWSC > 0] <- 1
+                lv.spell <- binSpell(bindWSC)
+                if (sum(lv.spell$len[na.omit(lv.spell$val == 0)] >= 5) >= 1) {
+                    nFS <- nFS + 1L
+                    aux_idx <- which(lv.spell$val == 0 & lv.spell$len >= 5)[1]
+                    candidate <- fSAG + sum(lv.spell$len[seq_len(aux_idx)]) + 1L
+                    if (candidate < max(potSAG, na.rm = TRUE)) {
+                        next_pot <- potSAG[potSAG >= candidate]
+                        if (length(next_pot) == 0) {
+                            break
+                        }
+                        fSAG <- next_pot[1]
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+            res$nm_fs <- nFS
+            endings <- tryCatch({
+                indW <- seq.int(fSAG + 1L, min(fSAG + 30L, nday))
+                bindWSC <- WSC[indW]
+                bindWSC[bindWSC > 0] <- 1
+                lv.spell <- binSpell(bindWSC)
+                if (sum(lv.spell$len[lv.spell$val == 0] >= 1) >= 1) {
+                    list(dt_fnst = NA_real_, dt_ed = NA_real_)
+                } else {
+                    dt_fnst <- fSAG
+                    aux_idx <- which(lv.spell$val == 1)
+                    if (length(aux_idx) == 0) {
+                        list(dt_fnst = dt_fnst, dt_ed = nday)
+                    } else {
+                        aux_last <- aux_idx[length(aux_idx)]
+                        seq_start <- fSAG + sum(lv.spell$len[seq_len(aux_last)])
+                        if (seq_start > nday) seq_start <- nday
+                        auxbindWSC <- WSC[seq.int(seq_start, nday)]
+                        auxbindWSC[auxbindWSC > 0] <- 1
+                        aux_lv <- binSpell(auxbindWSC)
+                        indEAS <- which(aux_lv$val == 0 & aux_lv$len >= 5)
+                        if (length(indEAS) > 0) {
+                            dt_ed <- fSAG + sum(lv.spell$len[seq_len(aux_last)]) - 1 +
+                                sum(aux_lv$len[seq_len(indEAS[1] - 1)]) + 1
+                        } else {
+                            dt_ed <- nday
+                        }
+                        list(dt_fnst = dt_fnst, dt_ed = dt_ed)
+                    }
+                }
+            }, error = function(...) {
+                list(dt_fnst = NA_real_, dt_ed = NA_real_)
+            })
+            res$dt_fn <- endings$dt_fnst
+            res$dt_ed <- endings$dt_ed
+            if (!is.na(res$dt_fn) && !is.na(res$dt_ed)) {
+                res$dl <- res$dt_ed - res$dt_fn
+            }
+            if (!is.na(res$dl) && res$dl > 0 &&
+                !(index.code %in% c("dt_st_rnagsn", "nm_flst_rnagsn",
+                                    "dt_fnst_rnagsn", "dt_ed_rnagsn", "dl_agsn"))) {
+                sAS <- res$dt_fn
+                eAS <- res$dt_ed
+                if (!is.na(sAS) && !is.na(eAS) && eAS > sAS) {
+                    idx_seq <- seq.int(sAS, eAS - 1L)
+                    pr.AS <- pr_year[idx_seq]
+                    tm.AS <- tm_year[idx_seq]
+                    tx.AS <- tx_year[idx_seq]
+                    tn.AS <- tn_year[idx_seq]
+                    res$out <- switch(index.code,
+                        "dc_agsn" = sum(pr.AS >= rndy, na.rm = TRUE),
+                        "rn_agsn" = sum(pr.AS[pr.AS >= rndy], na.rm = TRUE),
+                        "avrn_agsn" = mean(pr.AS[pr.AS >= rndy], na.rm = TRUE),
+                        "dc_rnlg_agsn" = sum(pr.AS >= rnlg, na.rm = TRUE),
+                        "tm_agsn" = mean(tm.AS, na.rm = TRUE),
+                        "dc_txh_agsn" = sum(tx.AS >= txh, na.rm = TRUE),
+                        "dc_tnh_agsn" = sum(tn.AS >= tnh, na.rm = TRUE),
+                        NA_real_)
+                }
+            }
+            res
+        })
+        dt_st_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_st")
+        nm_flst_rnagsn <- vapply(year_results, `[[`, numeric(1), "nm_fs")
+        dt_fnst_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_fn")
+        dt_ed_rnagsn <- vapply(year_results, `[[`, numeric(1), "dt_ed")
+        dl_agsn <- vapply(year_results, `[[`, numeric(1), "dl")
+        out <- vapply(year_results, `[[`, numeric(1), "out")
+        if (index.code %in% c("dt_st_rnagsn", "nm_flst_rnagsn", "dt_fnst_rnagsn",
+                              "dt_ed_rnagsn", "dl_agsn")) {
+            return(switch(index.code,
+                          "dt_st_rnagsn" = dt_st_rnagsn,
+                          "nm_flst_rnagsn" = nm_flst_rnagsn,
+                          "dt_fnst_rnagsn" = dt_fnst_rnagsn,
+                          "dt_ed_rnagsn" = dt_ed_rnagsn,
+                          "dl_agsn" = dl_agsn))
+        }
+        out
+    }
     aux <- read.master()
     metadata <- aux[grep(paste0("^", index.code, "$"), aux$code, fixed = FALSE), ]
     # Check which variables are provided
@@ -685,6 +1216,26 @@ agroindexGrid <- function(index.code,
     is_tier1 <- index.code %in% tier1_indices
     is_cdi_cei <- index.code %in% c("CDI", "CEI")
     is_fao_agro <- metadata$indexfun == "agroindexFAO"
+    fao_control <- list(use_fast = TRUE,
+                        parallel_years = isTRUE(getOption("climate4R.agro.fao_parallel_years", FALSE)))
+    if (is_fao_agro) {
+        if ("fao.parallel.years" %in% names(index.arg.list)) {
+            fao_control$parallel_years <- isTRUE(index.arg.list[["fao.parallel.years"]])
+            index.arg.list[["fao.parallel.years"]] <- NULL
+        }
+        if ("fao.fastpath" %in% names(index.arg.list)) {
+            fao_control$use_fast <- !identical(index.arg.list[["fao.fastpath"]], FALSE)
+            index.arg.list[["fao.fastpath"]] <- NULL
+        } else {
+            fao_control$use_fast <- !identical(getOption("climate4R.agro.fao_fastpath", TRUE), FALSE)
+        }
+        if ("fao.force.legacy" %in% names(index.arg.list)) {
+            if (isTRUE(index.arg.list[["fao.force.legacy"]])) {
+                fao_control$use_fast <- FALSE
+            }
+            index.arg.list[["fao.force.legacy"]] <- NULL
+        }
+    }
     
     # Helper function to load functions efficiently (avoids repetitive tryCatch)
     load_function <- function(fun_name, required = TRUE) {
@@ -810,9 +1361,18 @@ agroindexGrid <- function(index.code,
                 }
                 
                 if (is_fao_agro) {
-                    cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
+                    if (isTRUE(fao_control$use_fast)) {
+                        cluster_assign_function(parallel.pars$cl, "agroindexFAO_fast", agroindexFAO_fast)
+                        cluster_assign_function(parallel.pars$cl, "build_fao_year_windows", build_fao_year_windows)
+                        cluster_assign_function(parallel.pars$cl, "select_year_apply_fun", select_year_apply_fun)
+                        verify_funs_list <- c(verify_funs_list, "agroindexFAO_fast",
+                                              "build_fao_year_windows", "select_year_apply_fun")
+                    } else {
+                        cluster_assign_function(parallel.pars$cl, "agroindexFAO", fao_fun_loaded)
+                        verify_funs_list <- c(verify_funs_list, "agroindexFAO")
+                    }
                     cluster_assign_function(parallel.pars$cl, "computeET0", computeET0_loaded)
-                    verify_funs_list <- c(verify_funs_list, "agroindexFAO", "computeET0")
+                    verify_funs_list <- c(verify_funs_list, "computeET0")
                     # binSpell only exported once if needed by both Tier1 and FAO
                     if (!is.null(binSpell_loaded) && !("binSpell" %in% verify_funs_list)) {
                         cluster_assign_function(parallel.pars$cl, "binSpell", binSpell_loaded)
@@ -1178,9 +1738,28 @@ agroindexGrid <- function(index.code,
                     list(dates = dates_mat, index.code = index.code),
                     fao_args_static
                 )
-                
-                fao_runner <- if (n.mem > 1 && member_parallel_active) {
-                    # In parallel mode, use the exported function name directly to avoid serialization issues
+                fao_year_windows <- build_fao_year_windows(dates_mat)
+                fao_parallel_years_active <- isTRUE(fao_control$parallel_years) && isTRUE(fao_control$use_fast)
+                if (isTRUE(member_parallel_active) && fao_parallel_years_active) {
+                    fao_parallel_years_active <- FALSE
+                }
+                fao_runner <- if (isTRUE(fao_control$use_fast)) {
+                    function(args_point) {
+                        args_point$year_windows <- fao_year_windows
+                        args_point$parallel_years <- fao_parallel_years_active
+                        if (n.mem > 1 && member_parallel_active) {
+                            withCallingHandlers(
+                                suppressMessages(suppressWarnings(
+                                    do.call("agroindexFAO_fast", args_point)
+                                )),
+                                warning = function(w) invokeRestart("muffleWarning"),
+                                message = function(m) invokeRestart("muffleMessage")
+                            )
+                        } else {
+                            do.call(agroindexFAO_fast, args_point)
+                        }
+                    }
+                } else if (n.mem > 1 && member_parallel_active) {
                     function(args_point) {
                         withCallingHandlers(
                             suppressMessages(suppressWarnings(
@@ -1191,7 +1770,6 @@ agroindexGrid <- function(index.code,
                         )
                     }
                 } else {
-                    # In serial mode, use the local variable
                     function(args_point) {
                         do.call(fao_fun_loaded, args_point)
                     }
