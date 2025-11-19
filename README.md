@@ -190,11 +190,11 @@ For CDI/CEI indices, arguments include: `bounds` (data.frame), `combiner`, `min_
 
 See the help files for individual index functions (e.g., `?gsl`, `?avg`) for complete parameter lists.
 
+To clarify, arguments related to dates or years are not necessary with this new implementation of `agroindexGrid` since the function handles them internally.
+
 ## Important Notes
 
-### FAO Indices Time Resolution
-
-**FAO indices are calculated year by year by definition.** The `time.resolution` parameter is ignored for FAO indices, and the output will always be yearly data regardless of the `time.resolution` setting.
+The `time.resolution` parameter is ignored for FAO indices, and the output will always be yearly data regardless of the `time.resolution` setting. This also applies to the stress indices (CDI/CEI).
 
 ## Dependencies
 
