@@ -48,7 +48,7 @@ See the help page of the chosen index for the full list.}
 indices. Defaults to \code{"365_day"}.}
 
 \item{time.resolution}{Temporal aggregation for the output grid; one of \code{"month"},
-\code{"year"} (default), or \code{"climatology"}. FAO indices are always computed yearly.}
+\code{"year"} (default), or \code{"climatology"}. FAO indices and stress indices (CDI/CEI) are always computed yearly.}
 
 \item{parallel}{Logical flag enabling member-wise parallel execution when multiple ensemble members are present.}
 
@@ -79,48 +79,47 @@ and \code{ncores} to control resource usage.
 \examples{
 \dontrun{
 require(transformeR)
-require(visualizeR)
 
 # Load temperature and precipitation data
+data("tasmean.grid")
 data("tasmax.grid")
 data("tasmin.grid")
 data("pr.grid")
+data("hurs.grid")
 
 ## Example 1: Growing Season Length (GSL)
-gsl.grid <- agroindexGrid(tm = tasmax.grid, 
-                          index.code = "gsl",
-                          time.resolution = "year",
-                          index.arg.list = list(lat = 40))
+gsl.grid <- agroindexGrid(
+  tm = tasmax.grid, 
+  index.code = "gsl")
 
-## Example 2: Average temperature with custom season
-avg.grid <- agroindexGrid(tm = tasmax.grid,
-                          index.code = "avg",
-                          time.resolution = "year",
-                          index.arg.list = list(
-                            year.start = "2000-06-01",
-                            year.end = "2000-08-31"))
+## Example 2: Number of heat waves
+nhw.grid <- agroindexGrid(
+  tx = tasmax.grid,
+  index.code = "nhw",
+  index.arg.list = list(
+    threshold = 35,
+    duration = 3))
 
-## Example 3: Number of heat waves
-nhw.grid <- agroindexGrid(tx = tasmax.grid,
-                          index.code = "nhw",
-                          time.resolution = "year",
-                          index.arg.list = list(
-                            threshold = 35,
-                            duration = 3))
+# Example 3:AO Agronomic Season indices
+agsn_result <- agroindexGrid(
+  tx = tasmax.grid,
+  tn = tasmin.grid,
+  pr = pr.grid,
+  index.code = "dt_st_rnagsn",)
 
 ## Example 4: CDI - Condition Duration Index (multi-variable stress)
 # Requires bounds specification for each variable
-cdi.grid <- agroindexGrid(tx = tasmax.grid,
-                          hurs = hurs.grid,
-                          index.code = "CDI",
-                          time.resolution = "year",
-                          index.arg.list = list(
-                            bounds = data.frame(
-                              var = c("tx", "hurs"),
-                              lower = c(30, 0),
-                              upper = c(Inf, 40)),
-                            combiner = "all",
-                            min_duration = 3))
+cdi.grid <- agroindexGrid(
+  tx = tasmax.grid,
+  hurs = hurs.grid,
+  index.code = "CDI",
+  index.arg.list = list(
+    bounds = data.frame(
+      var = c("tx", "hurs"),
+      lower = c(30, 0),
+      upper = c(Inf, 40)),
+      combiner = "all",
+      min_duration = 3))
 
 }
 }
