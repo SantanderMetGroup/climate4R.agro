@@ -112,6 +112,11 @@ yearStartEnd <- function(dates, year, year.start = NULL, year.end = NULL) {
 gsl <- function(tm, dates, lat, pnan = 25) {
   
   year <- unique(dates[, 1])  # years of analysis
+
+  # If the latitude is negative, we only consider the years before the last year
+  if (lat < 0 && length(year) > 1) {
+    year <- year[year < max(year)]
+  }
   
   ## initializing output vectors
   init <- rep(NA_character_, length(year))  # first day of the season
