@@ -85,6 +85,16 @@ yearStartEnd <- function(dates, year, year.start = NULL, year.end = NULL) {
   } else {
     ind.start = which(dates[, 1] == year & dates[, 2] == 1 & dates[, 3] == 1)  # year's definition by default (1-Jan to 31-Dec)
     ind.end = which(dates[, 1] == year & dates[, 2] == 12 & dates[, 3] == 31)  # year's definition by default (1-Jan to 31-Dec)
+    
+    # If default dates not found, use first and last available day of the year
+    if (length(ind.start) == 0 || length(ind.end) == 0) {
+      year_indices = which(dates[, 1] == year)
+      if (length(year_indices) > 0) {
+        # Use first and last available day of the year
+        ind.start = year_indices[1]
+        ind.end = year_indices[length(year_indices)]
+      }
+    }
   }
   out = list()
   out$start = ind.start
