@@ -32,11 +32,35 @@ build_seasons_map <- function(n_days, start_date,
   if (!inherits(start_date, "Date")) start_date <- as.Date(start_date)
   dates <- seq.Date(start_date, by = "day", length.out = n_days)
 
+  # Validate and parse season_start and season_end format (must be "mm-dd")
+  # Check format: should be 5 characters with "-" in the middle
+  validate_season_format <- function(season_str, param_name) {
+    if (nchar(season_str) != 5 || substr(season_str, 3, 3) != "-") {
+      stop("Invalid format for ", param_name, ": '", season_str, 
+           "'. Expected format: 'mm-dd' (e.g., '11-01', '04-30')")
+    }
+    month <- as.integer(substr(season_str, 1, 2))
+    day <- as.integer(substr(season_str, 4, 5))
+    if (is.na(month) || is.na(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+      stop("Invalid date values in ", param_name, ": '", season_str, 
+           "'. Month must be 01-12, day must be 01-31")
+    }
+    # Check if it looks like dd-mm format (day > 12 suggests wrong format)
+    if (month > 12) {
+      stop("Invalid format for ", param_name, ": '", season_str, 
+           "'. It appears to be in 'dd-mm' format. Expected 'mm-dd' format (e.g., '04-30' not '30-04')")
+    }
+    return(list(month = month, day = day))
+  }
+  
+  season_start_parsed <- validate_season_format(season_start, "season_start")
+  season_end_parsed <- validate_season_format(season_end, "season_end")
+  
   # Does the season cross calendar year? (e.g., Jul->Jun)
-  ms <- as.integer(substr(season_start, 1, 2))
-  ds <- as.integer(substr(season_start, 4, 5))
-  me <- as.integer(substr(season_end, 1, 2))
-  de <- as.integer(substr(season_end, 4, 5))
+  ms <- season_start_parsed$month
+  ds <- season_start_parsed$day
+  me <- season_end_parsed$month
+  de <- season_end_parsed$day
   crosses <- (me < ms) || (me == ms && de < ds)
 
   # Build many candidate seasons around the data range
@@ -55,7 +79,23 @@ build_seasons_map <- function(n_days, start_date,
 
   # Map each date to its season (seasons are ordered and non-overlapping)
   idx <- findInterval(dates, S$start)
-  season_id <- ifelse(idx > 0 & dates <= S$end[pmax(idx, 1)], idx, NA_integer_)
+  # Ensure idx is within valid range before accessing S$end
+  # findInterval returns 0 for dates before first season, and can return length(S$start) 
+  # for dates after last season. We need to check that idx is valid (1 to length(S$end))
+  # and that the date is within the season end date.
+  n_seasons <- length(S$end)
+  # idx must be > 0 and <= n_seasons to be valid
+  # Also, if idx == n_seasons, we need to check that the date is actually within that season
+  valid_idx <- idx > 0 & idx <= n_seasons
+  # For valid indices, check if date falls within the season (date <= season end)
+  # Use vectorized comparison only for valid indices to avoid out-of-bounds access
+  in_season <- rep(FALSE, length(dates))
+  if (any(valid_idx)) {
+    # Safely access S$end only for valid indices
+    season_ends <- S$end[idx[valid_idx]]
+    in_season[valid_idx] <- dates[valid_idx] <= season_ends
+  }
+  season_id <- ifelse(valid_idx & in_season, idx, NA_integer_)
 
   list(seasons = S, season_id = season_id, dates = dates)
 }

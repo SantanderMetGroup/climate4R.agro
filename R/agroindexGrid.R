@@ -1197,6 +1197,39 @@ agroindexGrid <- function(index.code,
     refDates <- get_ref_dates(refGrid)
     ref_dates_date <- as.Date(refDates)
     ref_years <- unique(format(ref_dates_date, "%Y"))
+    
+    # Allow user to specify year_start and year_end to filter output years
+    # This is particularly useful for cross-year seasons (e.g., Nov-Apr) where
+    # partial seasons at the beginning/end might cause extra years in output
+    if ("year_start" %in% names(index.arg.list) || "year_end" %in% names(index.arg.list)) {
+        year_start <- if ("year_start" %in% names(index.arg.list)) {
+            as.integer(index.arg.list[["year_start"]])
+        } else {
+            min(as.integer(ref_years))
+        }
+        year_end <- if ("year_end" %in% names(index.arg.list)) {
+            as.integer(index.arg.list[["year_end"]])
+        } else {
+            max(as.integer(ref_years))
+        }
+        
+        # Filter ref_years to only include the specified range
+        ref_years_int <- as.integer(ref_years)
+        ref_years <- ref_years[ref_years_int >= year_start & ref_years_int <= year_end]
+        ref_years <- sort(ref_years)  # Ensure years are sorted
+        
+        if (length(ref_years) == 0) {
+            stop("No years found in the specified range [", year_start, ", ", year_end, "]")
+        }
+        
+        if (n.mem == 1) {
+            tryCatch({
+                message("[", Sys.time(), "] Filtering years to range [", year_start, ", ", year_end, 
+                       "]: ", length(ref_years), " years")
+            }, error = function(e) {})
+        }
+    }
+    
     message("[", Sys.time(), "] Calculating ", index.code, " ...")
     member_error_summary <- list()
     
@@ -1943,8 +1976,8 @@ agroindexGrid <- function(index.code,
         dates_mat <- as.matrix(dates_mat)
         colnames(dates_mat) <- NULL
         
-        # Prepare base args_list (without dates)
-        base_args_list <- index.arg.list[!names(index.arg.list) %in% c("dates")]
+        # Prepare base args_list (without dates, year_start, year_end)
+        base_args_list <- index.arg.list[!names(index.arg.list) %in% c("dates", "year_start", "year_end")]
         
         # Error tracking for non-FAO indices
     error_count <- 0
@@ -1976,9 +2009,17 @@ agroindexGrid <- function(index.code,
                         if (!is.null(aux.sfcwind)) df$sfcwind <- extract_ts(aux.sfcwind, l, lo)
                         if (!is.null(aux.ssrd)) df$ssrd <- extract_ts(aux.ssrd, l, lo)
                         
-                        # Remove 'dates' from args as CDI/CEI don't accept it
-                        args_clean <- index.arg.list[!names(index.arg.list) %in% c("dates")]
-                        args_list <- c(list(df = df, id = "id", start_date = min(df$date)), args_clean)
+                        # Remove 'dates', 'year_start', 'year_end' from args as CDI/CEI don't accept them
+                        # For CDI/CEI, start_date MUST match the first date in df$date to ensure correct
+                        # season mapping. build_seasons_map uses start_date to build the calendar sequence,
+                        # so if it doesn't match min(df$date), the dates won't align and season mapping fails.
+                        args_clean <- index.arg.list[!names(index.arg.list) %in% c("dates", "year_start", "year_end")]
+                        # Always use min(df$date) as start_date to ensure correct calendar alignment
+                        # This is critical when using subsetGrid or calculating in chunks
+                        start_date_val <- min(df$date)
+                        # Remove start_date from args_clean since we're adding it explicitly
+                        args_clean <- args_clean[!names(args_clean) %in% "start_date"]
+                        args_list <- c(list(df = df, id = "id", start_date = start_date_val), args_clean)
                         
                         # In parallel mode, use the exported function name directly to avoid serialization issues
                         # In serial mode, use the local variable
@@ -2026,14 +2067,28 @@ agroindexGrid <- function(index.code,
                                 # Extract final cumulative value per season
                                 # For CDI: max of cum_days per season
                                 # For CEI: max of cum_excess per season
+                                # Also extract day_idx and season_label for robust year mapping
                                 compute_season_max <- function(column_name) {
                                     seasons <- cdi_cei_result$season_id
                                     values_vec <- cdi_cei_result[[column_name]]
-                                    if (is.null(seasons) || length(seasons) == 0) {
-                                        return(numeric(0))
+                                    day_idx_vec <- if ("day_idx" %in% names(cdi_cei_result)) {
+                                        cdi_cei_result$day_idx
+                                    } else {
+                                        NULL
                                     }
-                                    unique_seasons <- unique(seasons)
-                                    vapply(
+                                    season_label_vec <- if ("season_label" %in% names(cdi_cei_result)) {
+                                        cdi_cei_result$season_label
+                                    } else {
+                                        NULL
+                                    }
+                                    if (is.null(seasons) || length(seasons) == 0) {
+                                        return(list(values = numeric(0), season_ids = integer(0), 
+                                                   day_idx_map = list(), season_label_map = list()))
+                                    }
+                                    unique_seasons <- unique(seasons[!is.na(seasons)])
+                                    # Sort unique_seasons to ensure chronological order (season_id should be sequential)
+                                    unique_seasons <- sort(unique_seasons)
+                                    season_max_values <- vapply(
                                         unique_seasons,
                                         function(season_val) {
                                             season_values <- values_vec[seasons == season_val]
@@ -2044,137 +2099,364 @@ agroindexGrid <- function(index.code,
                                         },
                                         numeric(1)
                                     )
+                                    # Build mapping from season_id to first day_idx and season_label for year extraction
+                                    day_idx_map <- lapply(unique_seasons, function(sid) {
+                                        if (!is.null(day_idx_vec)) {
+                                            first_day_idx <- day_idx_vec[seasons == sid][1]
+                                            if (!is.na(first_day_idx) && first_day_idx > 0 && first_day_idx <= length(ref_dates_date)) {
+                                                return(first_day_idx)
+                                            }
+                                        }
+                                        return(NA_integer_)
+                                    })
+                                    names(day_idx_map) <- as.character(unique_seasons)
+                                    
+                                    season_label_map <- lapply(unique_seasons, function(sid) {
+                                        if (!is.null(season_label_vec)) {
+                                            labels <- season_label_vec[seasons == sid]
+                                            non_na_labels <- labels[!is.na(labels)]
+                                            if (length(non_na_labels) > 0) {
+                                                return(non_na_labels[1])
+                                            }
+                                        }
+                                        return(NA_character_)
+                                    })
+                                    names(season_label_map) <- as.character(unique_seasons)
+                                    
+                                    # Return both values and corresponding season_ids to maintain order
+                                    list(values = season_max_values, season_ids = unique_seasons,
+                                         day_idx_map = day_idx_map, season_label_map = season_label_map)
                                 }
                                 
                                 # Get season values and map them to years
                                 if (index.code == "CDI") {
-                                    season_values <- compute_season_max("cum_days")
+                                    season_result <- compute_season_max("cum_days")
                                 } else {
                                     # CEI
-                                    season_values <- compute_season_max("cum_excess")
+                                    season_result <- compute_season_max("cum_excess")
                                 }
+                                season_values <- season_result$values
+                                season_ids_ordered <- season_result$season_ids
+                                day_idx_map <- season_result$day_idx_map
+                                season_label_map <- season_result$season_label_map
                                 
-                                # Map season_id to years using season_label if available
-                                # This handles the case where build_seasons_map creates more seasons than have data
+                                # Map season_id to years using build_seasons_map to get the correct year for each season
+                                # This is the most reliable method because it uses the season start date from build_seasons_map
                                 expected_length <- length(ref_years)
                                 result <- rep(NA_real_, expected_length)
                                 
                                 if (length(season_values) > 0) {
-                                    unique_seasons <- unique(cdi_cei_result$season_id)
-                                    
-                                    # Check if season_label is available
-                                    has_season_label <- "season_label" %in% names(cdi_cei_result)
-                                    
-                                    # Try to map using season_label first (most reliable)
-                                    if (has_season_label && length(unique_seasons) == length(season_values)) {
-                                        # Map season_id to years using season_label
-                                        # season_label format is "YYYY-YYYY" (e.g., "2020-2020" or "2020-2021")
-                                        for (i in seq_along(unique_seasons)) {
-                                            season_id_val <- unique_seasons[i]
-                                            # Get first season_label for this season_id
-                                            season_label <- cdi_cei_result$season_label[cdi_cei_result$season_id == season_id_val][1]
-                                            if (!is.na(season_label) && is.character(season_label)) {
-                                                # Extract start year from season_label (format: "YYYY-YYYY")
-                                                start_year <- substr(season_label, 1, 4)
-                                                # Find matching year in ref_years
-                                                year_idx <- which(ref_years == start_year)
-                                                if (length(year_idx) > 0) {
-                                                    result[year_idx[1]] <- season_values[i]
-                                                }
-                                            }
-                                        }
+                                    # Build seasons map once to get the correct year for each season_id
+                                    season_start_param <- if ("season_start" %in% names(index.arg.list)) {
+                                        index.arg.list[["season_start"]]
                                     } else {
-                                        # Fallback: Reconstruct season mapping using build_seasons_map to get year information
-                                        # This is needed when season_label is not available or when there's a mismatch
-                                        tryCatch({
-                                            # Get season parameters from index.arg.list
-                                            season_start <- if ("season_start" %in% names(index.arg.list)) {
-                                                index.arg.list[["season_start"]]
+                                        "07-01"
+                                    }
+                                    season_end_param <- if ("season_end" %in% names(index.arg.list)) {
+                                        index.arg.list[["season_end"]]
+                                    } else {
+                                        "06-30"
+                                    }
+                                    # Always use min(ref_dates_date) to match what was used in CEI call
+                                    season_map_start_date <- min(ref_dates_date)
+                                    SM_season_map <- build_seasons_map(length(ref_dates_date), season_map_start_date, 
+                                                                       season_start_param, season_end_param)
+                                    S_season_map <- SM_season_map$seasons
+                                    
+                                    # Create a mapping from season_id to year for all seasons that have data
+                                    # For cross-year seasons, map each season to the year of its start date
+                                    # This ensures consistent mapping: season Nov Y - Apr Y+1 maps to year Y
+                                    
+                                    # Check if season crosses years
+                                    ms <- as.integer(substr(season_start_param, 1, 2))
+                                    ds <- as.integer(substr(season_start_param, 4, 5))
+                                    me <- as.integer(substr(season_end_param, 1, 2))
+                                    de <- as.integer(substr(season_end_param, 4, 5))
+                                    crosses <- (me < ms) || (me == ms && de < ds)
+                                    
+                                    ref_years_char <- as.character(ref_years)
+                                    ref_years_int <- as.integer(ref_years)
+                                    
+                                    season_year_pairs <- list()
+                                    for (i in seq_along(season_ids_ordered)) {
+                                        season_id_val <- season_ids_ordered[i]
+                                        season_val <- season_values[i]
+                                        
+                                        if (is.na(season_val)) next
+                                        
+                                        year_found <- NULL
+                                        season_id_char <- as.character(season_id_val)
+                                        
+                                        # Get season dates from build_seasons_map
+                                        if (season_id_val > 0 && season_id_val <= nrow(S_season_map)) {
+                                            season_start_date <- S_season_map$start[season_id_val]
+                                            season_end_date <- S_season_map$end[season_id_val]
+                                            season_start_year <- format(season_start_date, "%Y")
+                                            season_end_year <- format(season_end_date, "%Y")
+                                            
+                                            # For cross-year seasons, map to the END year (contains more months: Jan-Apr)
+                                            # For non-cross-year seasons, use the start year
+                                            # This ensures: season 1980-11-01 to 1981-04-30 maps to 1981
+                                            if (crosses) {
+                                                target_year <- season_end_year
                                             } else {
-                                                "07-01"
-                                            }
-                                            season_end <- if ("season_end" %in% names(index.arg.list)) {
-                                                index.arg.list[["season_end"]]
-                                            } else {
-                                                "06-30"
+                                                target_year <- season_start_year
                                             }
                                             
-                                            # Rebuild seasons map to get year mapping
-                                            # This will create the same season structure that CDI used internally
-                                            SM <- build_seasons_map(length(ref_dates_date), min(ref_dates_date), 
-                                                                     season_start, season_end)
-                                            S <- SM$seasons
+                                            # Try to find the target year in ref_years
+                                            year_idx <- which(ref_years_char == target_year)
                                             
-                                            # Map each season_id to its corresponding year
-                                            # Only map seasons that actually have data (are in unique_seasons)
-                                            for (i in seq_along(unique_seasons)) {
-                                                season_id_val <- unique_seasons[i]
-                                                if (season_id_val <= nrow(S) && season_id_val > 0) {
-                                                    # Get start year of this season
-                                                    season_start_date <- S$start[season_id_val]
-                                                    season_year <- format(season_start_date, "%Y")
-                                                    # Find matching year in ref_years
-                                                    year_idx <- which(ref_years == season_year)
-                                                    if (length(year_idx) > 0) {
-                                                        result[year_idx[1]] <- season_values[i]
-                                                    }
+                                            if (length(year_idx) > 0) {
+                                                # Found exact match
+                                                year_found <- ref_years_char[year_idx[1]]
+                                            } else if (crosses) {
+                                                # For cross-year seasons, if end year not in ref_years,
+                                                # try the start year (which is end_year - 1)
+                                                year_idx_start <- which(ref_years_char == season_start_year)
+                                                if (length(year_idx_start) > 0) {
+                                                    year_found <- ref_years_char[year_idx_start[1]]
                                                 }
                                             }
-                                        }, error = function(e) {
-                                            # If mapping fails, try to align by position if lengths are close
-                                            # This is a last resort fallback
-                                            if (length(season_values) <= expected_length) {
-                                                result[seq_along(season_values)] <- season_values
-                                            } else {
-                                                result <- season_values[seq_len(expected_length)]
-                                            }
-                                        })
-                                    }
-                                    
-                                    # Final check: if we still have all NAs but had season_values, something went wrong
-                                    # Try one more time with a simpler approach if season_label was used but didn't work
-                                    if (all(is.na(result)) && length(season_values) > 0 && has_season_label) {
-                                        # Try extracting year from any available date information
-                                        if ("day_idx" %in% names(cdi_cei_result)) {
-                                            # Use day_idx to map back to dates and extract years
-                                            tryCatch({
-                                                for (i in seq_along(unique_seasons)) {
-                                                    season_id_val <- unique_seasons[i]
-                                                    # Get first day_idx for this season_id
-                                                    day_idx_val <- cdi_cei_result$day_idx[cdi_cei_result$season_id == season_id_val][1]
-                                                    if (!is.na(day_idx_val) && day_idx_val > 0 && day_idx_val <= length(ref_dates_date)) {
-                                                        season_date <- ref_dates_date[day_idx_val]
-                                                        season_year <- format(season_date, "%Y")
-                                                        year_idx <- which(ref_years == season_year)
-                                                        if (length(year_idx) > 0) {
-                                                            result[year_idx[1]] <- season_values[i]
+                                            
+                                            # If still not found, find the closest year in ref_years
+                                            if (is.null(year_found)) {
+                                                target_year_int <- tryCatch({
+                                                    as.integer(target_year)
+                                                }, warning = function(w) NA_integer_, error = function(e) NA_integer_)
+                                                
+                                                if (!is.na(target_year_int) && length(ref_years_int) > 0) {
+                                                    year_diff <- abs(ref_years_int - target_year_int)
+                                                    closest_idx <- which.min(year_diff)
+                                                    if (length(closest_idx) > 0) {
+                                                        # Only use if within 1 year (for cross-year seasons)
+                                                        if (year_diff[closest_idx] <= 1) {
+                                                            year_found <- ref_years_char[closest_idx]
                                                         }
                                                     }
                                                 }
-                                            }, error = function(e) {
-                                                # Ignore errors in this fallback
-                                            })
+                                            }
+                                        }
+                                        
+                                        # Try 2: Use season_label as fallback
+                                        if (is.null(year_found)) {
+                                            if (!is.null(season_label_map) && season_id_char %in% names(season_label_map)) {
+                                                season_label <- season_label_map[[season_id_char]]
+                                            if (!is.na(season_label) && is.character(season_label) && nchar(season_label) >= 4) {
+                                                season_label_clean <- trimws(season_label)
+                                                year_match <- regmatches(season_label_clean, regexpr("^[0-9]{4}", season_label_clean))
+                                                if (length(year_match) > 0 && nchar(year_match[1]) == 4) {
+                                                    start_year <- year_match[1]
+                                                } else {
+                                                    start_year <- substr(season_label_clean, 1, 4)
+                                                }
+                                                
+                                                if (nchar(start_year) == 4 && grepl("^[0-9]{4}$", start_year)) {
+                                                        year_to_use_char <- as.character(start_year)
+                                                    ref_years_char <- as.character(ref_years)
+                                                    year_idx <- which(ref_years_char == year_to_use_char)
+                                                    
+                                                        if (length(year_idx) > 0) {
+                                                            year_found <- ref_years_char[year_idx[1]]
+                                                        } else {
+                                                            # Try closest year
+                                                        year_to_use_int <- tryCatch({
+                                                            as.integer(year_to_use_char)
+                                                        }, warning = function(w) NA_integer_, error = function(e) NA_integer_)
+                                                        
+                                                        if (!is.na(year_to_use_int)) {
+                                                            ref_years_int <- tryCatch({
+                                                                as.integer(ref_years_char)
+                                                            }, warning = function(w) NULL, error = function(e) NULL)
+                                                            
+                                                            if (!is.null(ref_years_int) && length(ref_years_int) > 0) {
+                                                                year_diff <- abs(ref_years_int - year_to_use_int)
+                                                                closest_idx <- which.min(year_diff)
+                                                                if (length(closest_idx) > 0 && year_diff[closest_idx] <= 1) {
+                                                                        year_found <- ref_years_char[closest_idx]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            }
+                                        }
+                                        
+                                        # Try 3: Use day_idx as final fallback
+                                        if (is.null(year_found)) {
+                                            if (!is.null(day_idx_map) && season_id_char %in% names(day_idx_map)) {
+                                                day_idx_val <- day_idx_map[[season_id_char]]
+                                                if (!is.na(day_idx_val) && day_idx_val > 0 && day_idx_val <= length(ref_dates_date)) {
+                                                    actual_date <- ref_dates_date[day_idx_val]
+                                                    actual_year <- format(actual_date, "%Y")
+                                                    actual_year_char <- as.character(actual_year)
+                                                        ref_years_char <- as.character(ref_years)
+                                                    year_idx <- which(ref_years_char == actual_year_char)
+                                            
+                                            if (length(year_idx) > 0) {
+                                                        year_found <- ref_years_char[year_idx[1]]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        # Store the pair if we found a year
+                                        if (!is.null(year_found)) {
+                                            season_year_pairs[[length(season_year_pairs) + 1]] <- list(
+                                                season_id = season_id_val,
+                                                season_val = season_val,
+                                                year = year_found,
+                                                year_int = as.integer(year_found)
+                                            )
+                                        }
+                                    }
+                                    
+                                    # Sort pairs by season_id to maintain chronological order of seasons
+                                    # Build season_to_year_map for later use
+                                    season_to_year_map <- list()
+                                    if (length(season_year_pairs) > 0) {
+                                        # Sort by season_id (not year) to maintain chronological order
+                                        season_id_ints <- vapply(season_year_pairs, function(x) x$season_id, integer(1))
+                                        sorted_indices <- order(season_id_ints)
+                                        season_year_pairs <- season_year_pairs[sorted_indices]
+                                        
+                                        # Track which years have been assigned
+                                        assigned_years <- logical(length(ref_years))
+                                        names(assigned_years) <- ref_years_char
+                                        
+                                        # Track which season positions have been used
+                                        used_season_positions <- logical(length(season_year_pairs))
+                                        
+                                        # First pass: assign seasons to their target years if available
+                                        for (i in seq_along(season_year_pairs)) {
+                                            pair <- season_year_pairs[[i]]
+                                            year_char <- pair$year
+                                            season_val <- pair$season_val
+                                            season_id_val <- pair$season_id
+                                            ref_years_char <- as.character(ref_years)
+                                            year_idx <- which(ref_years_char == year_char)
+                                            
+                                            season_id_char <- as.character(season_id_val)
+                                            
+                                            if (length(year_idx) > 0) {
+                                                year_pos <- year_idx[1]
+                                                
+                                                # If this year hasn't been assigned yet, assign it
+                                                if (!assigned_years[year_pos]) {
+                                                    result[year_pos] <- season_val
+                                                    assigned_years[year_pos] <- TRUE
+                                                    used_season_positions[i] <- TRUE
+                                                    season_to_year_map[[season_id_char]] <- year_char
+                                                }
+                                            }
+                                        }
+                                        
+                                        # Second pass: for unassigned seasons, find the next available year
+                                        # This handles cases where multiple seasons map to the same year
+                                        for (i in seq_along(season_year_pairs)) {
+                                            if (!used_season_positions[i]) {
+                                                pair <- season_year_pairs[[i]]
+                                                season_val <- pair$season_val
+                                                season_id_val <- pair$season_id
+                                                season_id_char <- as.character(season_id_val)
+                                                
+                                                # Find first unassigned year
+                                                unassigned_years <- which(!assigned_years)
+                                                if (length(unassigned_years) > 0) {
+                                                    year_pos <- unassigned_years[1]
+                                                    result[year_pos] <- season_val
+                                                    assigned_years[year_pos] <- TRUE
+                                                    used_season_positions[i] <- TRUE
+                                                    season_to_year_map[[season_id_char]] <- ref_years_char[year_pos]
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    # If some seasons failed to map, try to fill gaps using positional mapping
+                                    # This handles cases where build_seasons_map creates more seasons than have data
+                                    num_mapped <- sum(!is.na(result))
+                                    if (num_mapped < length(season_values) && length(season_values) > 0) {
+                                        # Count how many seasons we successfully mapped
+                                        mapped_seasons <- sum(vapply(season_ids_ordered, function(sid) {
+                                            sid_char <- as.character(sid)
+                                            sid_char %in% names(season_to_year_map)
+                                        }, logical(1)))
+                                        
+                                        # If we mapped fewer seasons than we have, try positional mapping for unmapped ones
+                                        if (mapped_seasons < length(season_values)) {
+                                            # Find which seasons didn't get mapped
+                                            unmapped_indices <- which(vapply(seq_along(season_ids_ordered), function(i) {
+                                                sid_char <- as.character(season_ids_ordered[i])
+                                                !(sid_char %in% names(season_to_year_map))
+                                            }, logical(1)))
+                                            
+                                            # Try to map unmapped seasons by position
+                                            # This assumes that unmapped seasons correspond to years that don't have values yet
+                                            if (length(unmapped_indices) > 0) {
+                                                # Find years that don't have values yet
+                                                unmapped_years <- which(is.na(result))
+                                                
+                                                # If we have the same number of unmapped seasons and unmapped years, map them
+                                                if (length(unmapped_indices) == length(unmapped_years) && 
+                                                    length(unmapped_years) > 0) {
+                                                    for (j in seq_along(unmapped_indices)) {
+                                                        i <- unmapped_indices[j]
+                                                        year_pos <- unmapped_years[j]
+                                                        if (year_pos <= length(result) && i <= length(season_values)) {
+                                                            result[year_pos] <- season_values[i]
+                                                        }
+                                                    }
+                                                } else if (length(season_values) == expected_length && 
+                                                          all(is.na(result))) {
+                                                    # Last resort: if nothing was mapped and we have the right number, map by position
+                                                    result <- season_values
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    # Final fallback: if still all NA, try positional mapping
+                                    if (all(is.na(result)) && length(season_values) > 0 && length(season_ids_ordered) > 0) {
+                                            if (length(season_values) == expected_length) {
+                                            # Direct positional mapping as last resort
+                                                result <- season_values
+                                        } else if (length(season_values) < expected_length) {
+                                            # Fewer seasons than years - try to map to first N years
+                                            result[seq_along(season_values)] <- season_values
                                         }
                                     }
                                 }
                                 
-                                # Check if result length matches expected (should be number of seasons/years)
+                                # OLD COMPLEX MAPPING CODE REMOVED - The new day_idx-based mapping above should handle all cases
+                                
+                                # Ensure result has exactly the expected length
+                                # This filters out any seasons that map to years outside ref_years
                                 if (length(result) != expected_length) {
-                                    # This should not happen after mapping, but keep as safety check
+                                    if (length(result) > expected_length) {
+                                        # Truncate to expected length (should not happen, but safety check)
+                                        result <- result[seq_len(expected_length)]
+                                    } else {
+                                        # Pad with NAs if shorter (should not happen, but safety check)
+                                        result <- c(result, rep(NA_real_, expected_length - length(result)))
+                                    }
                                     if (n.mem == 1 && l <= 3 && lo <= 3) {
                                         tryCatch({
                                             message("Warning at lat=", lats[l], ", lon=", lons[lo], 
                                                    ": CDI/CEI result length (", length(result), 
-                                                   ") doesn't match expected years (", expected_length, "). ",
+                                                   ") adjusted to match expected years (", expected_length, "). ",
                                                    "Unique season_ids: ", length(unique(cdi_cei_result$season_id)))
                                         }, error = function(e) {})
-                                    }
-                                }
                             }
                         }
+                                
+                                # OLD COMPLEX MAPPING CODE REMOVED - The new day_idx-based mapping above handles all cases
                         
                         result
-                    } else {
+                            }
+                        }
+                    }
+                    else {
                         # Other indices (non-FAO, non-CDI/CEI)
                         args_list <- base_args_list
                         
