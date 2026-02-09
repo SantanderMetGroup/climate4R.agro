@@ -1,16 +1,17 @@
 Package: climate4R.agro
 Title: Agroclimatic Index Calculation for climate4R Data
 Version: 1.0.0
-Date: 2025-11-15
+Date: 2026-02-09
 Description: A comprehensive R package for calculating agroclimatic indices from climate data, built on the climate4R framework. The distribution includes a GPL-3 LICENSE file as well as the auxiliary 'man-roxygen/' directory containing shared roxygen templates.
 Depends: R (>= 4.0.0)
-Imports: transformeR (>= 1.4.4),
-         magrittr,
-         parallel,
-         dplyr,
-         abind,
-         tibble,
-         rlang
+Imports: 
+    transformeR (>= 1.4.4),
+    magrittr,
+    parallel,
+    dplyr,
+    abind,
+    tibble,
+    rlang
 Authors@R: c(
     person(given = "Santander Meteorology Group",
            role = "cph",
