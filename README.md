@@ -44,8 +44,18 @@ A comprehensive R package for calculating agroclimatic indices from climate data
 The recommended procedure for installing the package is using the devtools package.
 
 ```r
-# Install from GitHub
+# Install from GitHub (also available )
 devtools::install_github("SantanderMetGroup/climate4R.agro")
+```
+
+If you are experiencing issues when using `devtools` or `remotes`, we recommend manual installation using the source file:
+
+1. Download the `climate4R.agro_1.0.0.tar.gz` file from (https://github.com/SantanderMetGroup/climate4R.agro/releases).
+
+2. Install it from the R console:
+
+```R
+install.packages("climate4R.agro_1.0.0.tar.gz", repos = NULL, type = "source")
 ```
 
 A list of all available indices and the atomic functions calculating them is printed on screen with:
@@ -189,8 +199,6 @@ For FAO agronomic indices (`agroindexFAO`), additional arguments include: `shc`,
 For CDI/CEI indices, arguments include: `bounds` (data.frame), `combiner`, `min_duration`.
 
 See the help files for individual index functions (e.g., `?gsl`, `?avg`) for complete parameter lists.
-
-To clarify, arguments related to dates or years are not necessary with this new implementation of `agroindexGrid` since the function handles them internally.
 
 ## Important Notes
 
